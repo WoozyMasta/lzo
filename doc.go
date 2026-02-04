@@ -1,9 +1,9 @@
 /*
 Package lzo implements LZO1X compression and decompression (lzo1x_decompress_safe–compatible).
 
-The format uses match types M1–M4 with different offset and length bounds; the stream
-ends with a terminator (distance 0x4000, length 1). Suitable for archives and binary
-formats that use LZO1X.
+The format uses match types M1–M4 with different offset and length bounds; the
+stream ends with a terminator (distance 0x4000, length 1). Suitable for archives
+and binary formats that use LZO1X.
 
 # Decompress
 
