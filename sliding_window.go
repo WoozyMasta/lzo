@@ -204,43 +204,40 @@ func (s *slidingWindowDict) searchBestMatch(node uint, cnt uint) error {
 	}
 
 	buffer := s.buffer[:]
-	currentMatchLen := int(s.MLen)
-	scanPos := int(s.scanPos)
-	scanLimit := scanPos + int(s.Look)
-	lookAhead := int(s.Look)
-	niceLength := int(s.NiceLength)
-	nodePos := int(node)
+	currentMatchLen := s.MLen
+	scanPos := s.scanPos
+	scanLimit := scanPos + s.Look
 
 	matchProbeByte := buffer[scanPos+currentMatchLen-1]
 	for ; cnt > 0; cnt-- {
-		if currentMatchLen >= lookAhead {
+		if currentMatchLen >= s.Look {
 			return ErrCompressInternal
 		}
 
-		if buffer[nodePos+currentMatchLen-1] == matchProbeByte &&
-			buffer[nodePos+currentMatchLen] == buffer[scanPos+currentMatchLen] &&
-			buffer[nodePos] == buffer[scanPos] &&
-			buffer[nodePos+1] == buffer[scanPos+1] {
-			matchedLen := 2
-			for scanPos+matchedLen < scanLimit && buffer[scanPos+matchedLen] == buffer[nodePos+matchedLen] {
+		if buffer[node+currentMatchLen-1] == matchProbeByte &&
+			buffer[node+currentMatchLen] == buffer[scanPos+currentMatchLen] &&
+			buffer[node] == buffer[scanPos] &&
+			buffer[node+1] == buffer[scanPos+1] {
+			matchedLen := uint(2)
+			for scanPos+matchedLen < scanLimit && buffer[scanPos+matchedLen] == buffer[node+matchedLen] {
 				matchedLen++
 			}
 
 			if matchedLen < swdBestOffCount && s.bestPos[matchedLen] == 0 {
-				s.bestPos[matchedLen] = uint(nodePos + 1)
+				s.bestPos[matchedLen] = node + 1
 			}
 			if matchedLen > currentMatchLen {
 				currentMatchLen = matchedLen
-				s.MLen = uint(currentMatchLen)
-				s.matchPos = uint(nodePos)
+				s.MLen = currentMatchLen
+				s.matchPos = node
 
-				if currentMatchLen == lookAhead {
+				if currentMatchLen == s.Look {
 					return nil
 				}
-				if currentMatchLen >= niceLength {
+				if currentMatchLen >= s.NiceLength {
 					return nil
 				}
-				if currentMatchLen > int(s.chainBestLen[nodePos]) {
+				if currentMatchLen > uint(s.chainBestLen[node]) {
 					return nil
 				}
 
@@ -248,7 +245,7 @@ func (s *slidingWindowDict) searchBestMatch(node uint, cnt uint) error {
 			}
 		}
 
-		nodePos = int(s.chainNext[nodePos])
+		node = uint(s.chainNext[node])
 	}
 
 	return nil

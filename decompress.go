@@ -19,20 +19,8 @@ func Decompress(src []byte, opts *DecompressOptions) ([]byte, error) {
 	inputLen := len(src)
 
 	copyMatch := func(distance, length int) error {
-		matchPos := outputPos - distance
-		if matchPos < 0 {
-			return ErrLookBehindUnderrun
-		}
-		if outputPos+length > outLen {
-			return ErrOutputOverrun
-		}
-
-		if distance >= length {
-			copy(dst[outputPos:outputPos+length], dst[matchPos:matchPos+length])
-		} else {
-			for i := 0; i < length; i++ {
-				dst[outputPos+i] = dst[matchPos+i]
-			}
+		if err := copyBackRef(dst, outputPos, distance, length); err != nil {
+			return err
 		}
 
 		outputPos += length
