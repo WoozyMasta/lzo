@@ -77,6 +77,43 @@ func TestDecompressFromReader_MaxInputSize(t *testing.T) {
 	}
 }
 
+func TestDecompressN_ReturnsConsumedBytes(t *testing.T) {
+	data := bytes.Repeat([]byte("0123456789"), 100)
+	cmp, err := Compress(data, nil)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	decoded, nRead, err := DecompressN(cmp, DefaultDecompressOptions(len(data)))
+	if err != nil {
+		t.Fatalf("DecompressN failed: %v", err)
+	}
+
+	if nRead != len(cmp) {
+		t.Errorf("nRead = %d, want %d (full compressed length)", nRead, len(cmp))
+	}
+	if !bytes.Equal(decoded, data) {
+		t.Errorf("decoded mismatch")
+	}
+
+	// Back-to-back: extra bytes after the block should not be consumed
+	extra := []byte("trailing")
+	src := append(append([]byte(nil), cmp...), extra...)
+	decoded2, nRead2, err := DecompressN(src, DefaultDecompressOptions(len(data)))
+	if err != nil {
+		t.Fatalf("DecompressN with trailing failed: %v", err)
+	}
+	if nRead2 != len(cmp) {
+		t.Errorf("nRead with trailing = %d, want %d", nRead2, len(cmp))
+	}
+	if !bytes.Equal(decoded2, data) {
+		t.Errorf("decoded with trailing mismatch")
+	}
+	if nRead2 < len(src) && !bytes.Equal(src[nRead2:], extra) {
+		t.Errorf("advancing by nRead should leave trailing bytes unchanged")
+	}
+}
+
 func TestCopyBackRef(t *testing.T) {
 	t.Run("non-overlapping", func(t *testing.T) {
 		dst := []byte("abcdefghXXXXXXXX")

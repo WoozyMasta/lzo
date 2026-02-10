@@ -35,12 +35,38 @@ func Decompress(src []byte, opts *DecompressOptions) ([]byte, error) {
 	}
 
 	dst := make([]byte, outLen)
-	n, err := decompressCore(src, dst)
+	n, _, err := decompressCore(src, dst)
 	if err != nil {
 		return nil, err
 	}
 
 	return dst[:n], nil
+}
+
+// DecompressN decompresses LZO1X data from src and returns the decoded slice,
+// the number of input bytes consumed (nRead), and an error.
+// nRead is 0 on error. Use this when advancing a stream (e.g. back-to-back compressed blocks).
+func DecompressN(src []byte, opts *DecompressOptions) ([]byte, int, error) {
+	if opts == nil {
+		return nil, 0, ErrOptionsRequired
+	}
+
+	if len(src) == 0 {
+		return nil, 0, ErrEmptyInput
+	}
+
+	outLen := opts.OutLen
+	if outLen < 0 {
+		return nil, 0, ErrOptionsRequired
+	}
+
+	dst := make([]byte, outLen)
+	outWritten, inConsumed, err := decompressCore(src, dst)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return dst[:outWritten], inConsumed, nil
 }
 
 // DecompressFromReader reads the full stream then calls Decompress. No decoding logic of its own.
@@ -63,13 +89,13 @@ func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) 
 }
 
 // decompressCore decompresses LZO1X data from src into dst using a state machine.
-// It writes starting at dst[0] and returns the number of bytes written and nil on success.
-// On stream terminator it returns (outputOffset, nil). On error it returns (0, error).
-func decompressCore(src, dst []byte) (int, error) {
+// It writes starting at dst[0] and returns (bytes written, input bytes consumed, nil) on success.
+// On stream terminator it returns (outputOffset, inputOffset, nil). On error it returns (0, 0, err).
+func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 	inputLen := len(src)
 	outputLen := len(dst)
 	if inputLen == 0 {
-		return 0, ErrEmptyInput
+		return 0, 0, ErrEmptyInput
 	}
 
 	var (
@@ -89,14 +115,14 @@ func decompressCore(src, dst []byte) (int, error) {
 	if instructionByte > 17 {
 		runLength = instructionByte - 17
 		if inputOffset+runLength > inputLen || outputOffset+runLength > outputLen {
-			return 0, ErrInputOverrun
+			return 0, 0, ErrInputOverrun
 		}
 
 		copy(dst[outputOffset:outputOffset+runLength], src[inputOffset:inputOffset+runLength])
 		inputOffset += runLength
 		outputOffset += runLength
 		if inputOffset >= inputLen {
-			return 0, ErrUnexpectedEOF
+			return 0, 0, ErrUnexpectedEOF
 		}
 
 		instructionByte = int(src[inputOffset])
@@ -119,20 +145,20 @@ func decompressCore(src, dst []byte) (int, error) {
 				var err error
 				runLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 15)
 				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 			}
 
 			runLength += 3
 			if inputOffset+runLength > inputLen || outputOffset+runLength > outputLen {
-				return 0, ErrInputOverrun
+				return 0, 0, ErrInputOverrun
 			}
 
 			copy(dst[outputOffset:outputOffset+runLength], src[inputOffset:inputOffset+runLength])
 			inputOffset += runLength
 			outputOffset += runLength
 			if inputOffset >= inputLen {
-				return 0, ErrInputOverrun
+				return 0, 0, ErrInputOverrun
 			}
 
 			instructionByte = int(src[inputOffset])
@@ -148,12 +174,12 @@ func decompressCore(src, dst []byte) (int, error) {
 
 			b, err := readByte(src, &inputOffset, inputLen)
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 
 			backRefDistance = (1 + shortMatchBaseOffset) + (instructionByte >> 2) + (int(b) << 2)
 			if err := copyBackRef(dst, outputOffset, backRefDistance, 3); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 
 			outputOffset += 3
@@ -165,11 +191,11 @@ func decompressCore(src, dst []byte) (int, error) {
 				// 2-byte short match (M1-style): distance = 1 + (t>>2) + (next<<2), length 2
 				b, err := readByte(src, &inputOffset, inputLen)
 				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 				backRefDistance = 1 + (instructionByte >> 2) + (int(b) << 2)
 				if err := copyBackRef(dst, outputOffset, backRefDistance, 2); err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 				outputOffset += 2
 				state = stateMatchDone
@@ -177,13 +203,13 @@ func decompressCore(src, dst []byte) (int, error) {
 				// M2
 				b, err := readByte(src, &inputOffset, inputLen)
 				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				backRefDistance = ((instructionByte >> 2) & 7) + (int(b) << 3) + 1
 				matchLength = (instructionByte >> 5) - 1 + 2
 				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				outputOffset += matchLength
@@ -195,20 +221,20 @@ func decompressCore(src, dst []byte) (int, error) {
 					var err error
 					matchLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 31)
 					if err != nil {
-						return 0, err
+						return 0, 0, err
 					}
 				}
 				matchLength += 2
 
 				v16, err := readUint16LittleEndian(src, &inputOffset, inputLen)
 				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				backRefDistance = (int(v16) >> 2) + 1
 				trailingSourceByte = byte(v16 & 0xFF)
 				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				outputOffset += matchLength
@@ -221,25 +247,25 @@ func decompressCore(src, dst []byte) (int, error) {
 					var err error
 					matchLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 7)
 					if err != nil {
-						return 0, err
+						return 0, 0, err
 					}
 				}
 				matchLength += 2
 
 				v16, err := readUint16LittleEndian(src, &inputOffset, inputLen)
 				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				backRefDistance = (int(v16) >> 2) + mLenHigh
 				trailingSourceByte = byte(v16 & 0xFF)
 				if backRefDistance == 0 {
-					return outputOffset, nil
+					return outputOffset, inputOffset, nil
 				}
 
 				backRefDistance += 0x4000
 				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
 				outputOffset += matchLength
@@ -254,13 +280,13 @@ func decompressCore(src, dst []byte) (int, error) {
 			}
 
 			if inputOffset+trailingCount > inputLen || outputOffset+trailingCount > outputLen {
-				return 0, ErrInputOverrun
+				return 0, 0, ErrInputOverrun
 			}
 			copy(dst[outputOffset:outputOffset+trailingCount], src[inputOffset:inputOffset+trailingCount])
 			outputOffset += trailingCount
 			inputOffset += trailingCount
 			if inputOffset >= inputLen {
-				return 0, ErrUnexpectedEOF
+				return 0, 0, ErrUnexpectedEOF
 			}
 
 			instructionByte = int(src[inputOffset])
@@ -273,7 +299,7 @@ func decompressCore(src, dst []byte) (int, error) {
 
 		case stateMatchEnd:
 			if inputOffset >= inputLen {
-				return 0, ErrUnexpectedEOF
+				return 0, 0, ErrUnexpectedEOF
 			}
 			instructionByte = int(src[inputOffset])
 			inputOffset++

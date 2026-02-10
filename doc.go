@@ -11,6 +11,11 @@ OutLen is required (use DecompressOptions). From a byte slice:
 
 	out, err := lzo.Decompress(compressed, lzo.DefaultDecompressOptions(expectedLen))
 
+To get the number of input bytes consumed (e.g. for back-to-back compressed blocks):
+
+	out, nRead, err := lzo.DecompressN(compressed, lzo.DefaultDecompressOptions(expectedLen))
+	// advance: compressed = compressed[nRead:]
+
 From an io.Reader (e.g. stream with known decompressed size):
 
 	out, err := lzo.DecompressFromReader(r, lzo.DefaultDecompressOptions(expectedLen))
