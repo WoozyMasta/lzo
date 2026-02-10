@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.1.2][] - 2026-02-10
+
+### Added
+
+* New function `DecompressN(bytes, opts)` returning decompressed data and
+  number of input bytes consumed (`nRead`),
+  for advancing over back-to-back compressed blocks.
+
+[0.1.2]: https://github.com/WoozyMasta/lzo/compare/v0.1.1...v0.1.2
+
 ## [0.1.1][] - 2026-02-05
 
 ### Changed
