@@ -175,7 +175,7 @@ func (s *slidingWindowDict) accept(n uint) error {
 		return ErrCompressInternal
 	}
 
-	for i := uint(0); i < n; i++ {
+	for range n {
 		if err := s.removeNode(s.removePos); err != nil {
 			return err
 		}

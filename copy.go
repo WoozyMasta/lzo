@@ -19,7 +19,7 @@ func copyBackRef(dst []byte, outputPos, dist, length int) error {
 		return nil
 	}
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		dst[outputPos+i] = dst[mPos+i]
 	}
 

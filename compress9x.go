@@ -134,10 +134,7 @@ func compress9x(in []byte, p compressLevelParams) ([]byte, error) {
 				return nil, ErrCompressInternal
 			}
 
-			maxahead = p.tryLazy
-			if maxahead > encodedLenCurrentMatch-1 {
-				maxahead = encodedLenCurrentMatch - 1
-			}
+			maxahead = min(p.tryLazy, encodedLenCurrentMatch-1)
 		}
 
 		matchDone := false
@@ -322,15 +319,16 @@ func (ctx *lzoCompressor) codeMatch(out []byte, matchLen int, matchOffset int) (
 func (ctx *lzoCompressor) storeRun(out []byte, literalStart int, literalCount int) []byte {
 	ctx.litBytes += literalCount
 
-	if len(out) == 0 && literalCount <= 238 {
+	switch {
+	case len(out) == 0 && literalCount <= 238:
 		out = append(out, byte(17+literalCount))
-	} else if literalCount <= 3 {
+	case literalCount <= 3:
 		out[len(out)-2] |= byte(literalCount)
 		ctx.lit1r++
-	} else if literalCount <= 18 {
+	case literalCount <= 18:
 		out = append(out, byte(literalCount-3))
 		ctx.lit2r++
-	} else {
+	default:
 		out = append(out, 0)
 		out = appendMultiple(out, literalCount-18)
 		ctx.lit3r++

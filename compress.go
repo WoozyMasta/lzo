@@ -7,17 +7,13 @@ func Compress(src []byte, opts *CompressOptions) ([]byte, error) {
 		opts = DefaultCompressOptions()
 	}
 	level := opts.Level
-	if level < 0 {
-		level = 0
-	}
+	level = max(level, 0)
 
 	if level <= 1 {
 		return compress1xFast(src), nil
 	}
-	if level > 9 {
-		level = 9
-	}
 
+	level = min(level, 9)
 	return compress9x(src, fixedLevels[level-1])
 }
 
@@ -27,6 +23,7 @@ func compress(in []byte) (out []byte, literalTailSize int) {
 	dict := make([]int32, 1<<dictBits)
 	literalStart := 0
 	inputPos := 4
+
 	for {
 		key := int(in[inputPos+3])
 		key = (key << 6) ^ int(in[inputPos+2])
@@ -34,179 +31,100 @@ func compress(in []byte) (out []byte, literalTailSize int) {
 		key = (key << 5) ^ int(in[inputPos+0])
 		dictIndex := ((0x21 * key) >> 5) & dictMask
 
-		matchPos, matchOffset := findCandidate(dict, in, inputPos, dictIndex)
-		tryMatch := matchPos >= 0 && (matchOffset <= maxOffsetM2 || in[matchPos+3] == in[inputPos+3])
-		if tryMatch && in[matchPos] == in[inputPos] && in[matchPos+1] == in[inputPos+1] && in[matchPos+2] == in[inputPos+2] {
-			// emit match
-			dict[dictIndex] = int32(inputPos + 1) //nolint:gosec // G115: input position fits int32 for LZO input sizes
-			if inputPos != literalStart {
-				literalCount := inputPos - literalStart
-				if len(out) == 0 && literalCount <= 238 {
-					out = append(out, byte(17+literalCount))
-				} else if literalCount <= 3 {
-					out[len(out)-2] |= byte(literalCount)
-				} else if literalCount <= 18 {
-					out = append(out, byte(literalCount-3))
-				} else {
-					out = append(out, 0)
-					out = appendMultiple(out, literalCount-18)
-				}
-				out = append(out, in[literalStart:literalStart+literalCount]...)
-				literalStart += literalCount
-			}
+		matched := false
 
-			// find match
-			var i int
-			inputPos += 3
-			for i = 3; i < 9; i++ {
-				inputPos++
-				if in[matchPos+i] != in[inputPos-1] {
-					break
-				}
-			}
+		for attempt := range 2 {
+			matchPos, matchOffset := findCandidate(dict, in, inputPos, dictIndex)
+			tryMatch := matchPos >= 0 && (matchOffset <= maxOffsetM2 || in[matchPos+3] == in[inputPos+3])
+			if tryMatch &&
+				in[matchPos] == in[inputPos] &&
+				in[matchPos+1] == in[inputPos+1] &&
+				in[matchPos+2] == in[inputPos+2] {
+				dict[dictIndex] = int32(inputPos + 1) //nolint:gosec // G115: input position fits int32 for LZO input sizes
 
-			if i < 9 {
-				inputPos--
-				matchLen := inputPos - literalStart
-				if matchOffset <= maxOffsetM2 {
-					matchOffset--
-					out = append(out,
-						byte((((matchLen - 1) << 5) | ((matchOffset & 7) << 2))),
-						byte((matchOffset >> 3)))
-				} else if matchOffset <= maxOffsetM3 {
-					matchOffset--
-					out = append(out,
-						byte(markerM3|(matchLen-2)),
-						byte((matchOffset&63)<<2),
-						byte(matchOffset>>6))
-				} else {
-					matchOffset -= 0x4000
-					out = append(out,
-						byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)),
-						byte((matchOffset&63)<<2),
-						byte(matchOffset>>6))
+				if inputPos != literalStart {
+					out = appendLiteral(out, in[literalStart:inputPos])
+					literalStart = inputPos
 				}
-			} else {
-				m := matchPos + maxLenM2 + 1
-				for inputPos < inputLen && in[m] == in[inputPos] {
-					m++
+
+				// find match
+				var i int
+				inputPos += 3
+
+				for i = 3; i < 9; i++ {
 					inputPos++
+
+					if in[matchPos+i] != in[inputPos-1] {
+						break
+					}
 				}
-				matchLen := inputPos - literalStart
-				if matchOffset <= maxOffsetM3 {
-					matchOffset--
-					if matchLen <= 33 {
-						out = append(out, byte(markerM3|(matchLen-2)))
-					} else {
-						matchLen -= 33
-						out = append(out, byte(markerM3))
-						out = appendMultiple(out, matchLen)
+
+				if i < 9 {
+					inputPos--
+					matchLen := inputPos - literalStart
+
+					switch {
+					case matchOffset <= maxOffsetM2:
+						matchOffset--
+						out = append(out,
+							byte((((matchLen - 1) << 5) | ((matchOffset & 7) << 2))),
+							byte((matchOffset >> 3)),
+						)
+					case matchOffset <= maxOffsetM3:
+						matchOffset--
+						out = append(out,
+							byte(markerM3|(matchLen-2)),
+							byte((matchOffset&63)<<2),
+							byte(matchOffset>>6),
+						)
+					default:
+						matchOffset -= 0x4000
+						out = append(out,
+							byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)),
+							byte((matchOffset&63)<<2),
+							byte(matchOffset>>6),
+						)
 					}
 				} else {
-					matchOffset -= 0x4000
-					if matchLen <= maxLenM4 {
-						out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)))
-					} else {
-						matchLen -= maxLenM4
-						out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)))
-						out = appendMultiple(out, matchLen)
+					m := matchPos + maxLenM2 + 1
+					for inputPos < inputLen && in[m] == in[inputPos] {
+						m++
+						inputPos++
 					}
+					matchLen := inputPos - literalStart
+					if matchOffset <= maxOffsetM3 {
+						matchOffset--
+						if matchLen <= 33 {
+							out = append(out, byte(markerM3|(matchLen-2)))
+						} else {
+							matchLen -= 33
+							out = append(out, byte(markerM3))
+							out = appendMultiple(out, matchLen)
+						}
+					} else {
+						matchOffset -= 0x4000
+						if matchLen <= maxLenM4 {
+							out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)))
+						} else {
+							matchLen -= maxLenM4
+							out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)))
+							out = appendMultiple(out, matchLen)
+						}
+					}
+					out = append(out, byte((matchOffset&63)<<2), byte(matchOffset>>6))
 				}
-				out = append(out, byte((matchOffset&63)<<2), byte(matchOffset>>6))
-			}
 
-			literalStart = inputPos
-			if inputPos >= inputLimit {
+				literalStart = inputPos
+				matched = true
 				break
 			}
 
-			continue
+			if attempt == 0 {
+				dictIndex = (dictIndex & (dictMask & 0x7ff)) ^ (dictHigh | 0x1f)
+			}
 		}
 
-		dictIndex = (dictIndex & (dictMask & 0x7ff)) ^ (dictHigh | 0x1f)
-		matchPos, matchOffset = findCandidate(dict, in, inputPos, dictIndex)
-		tryMatch = matchPos >= 0 && (matchOffset <= maxOffsetM2 || in[matchPos+3] == in[inputPos+3])
-		if tryMatch && in[matchPos] == in[inputPos] && in[matchPos+1] == in[inputPos+1] && in[matchPos+2] == in[inputPos+2] {
-			dict[dictIndex] = int32(inputPos + 1) //nolint:gosec // G115: input position fits int32 for LZO input sizes
-
-			// emit literal
-			if inputPos != literalStart {
-				literalCount := inputPos - literalStart
-				if len(out) == 0 && literalCount <= 238 {
-					out = append(out, byte(17+literalCount))
-				} else if literalCount <= 3 {
-					out[len(out)-2] |= byte(literalCount)
-				} else if literalCount <= 18 {
-					out = append(out, byte(literalCount-3))
-				} else {
-					out = append(out, 0)
-					out = appendMultiple(out, literalCount-18)
-				}
-				out = append(out, in[literalStart:literalStart+literalCount]...)
-				literalStart += literalCount
-			}
-
-			// find match
-			var i int
-			inputPos += 3
-			for i = 3; i < 9; i++ {
-				inputPos++
-				if in[matchPos+i] != in[inputPos-1] {
-					break
-				}
-			}
-
-			if i < 9 {
-				inputPos--
-				matchLen := inputPos - literalStart
-				if matchOffset <= maxOffsetM2 {
-					matchOffset--
-					out = append(out,
-						byte((((matchLen - 1) << 5) | ((matchOffset & 7) << 2))),
-						byte((matchOffset >> 3)))
-				} else if matchOffset <= maxOffsetM3 {
-					matchOffset--
-					out = append(out,
-						byte(markerM3|(matchLen-2)),
-						byte((matchOffset&63)<<2),
-						byte(matchOffset>>6))
-				} else {
-					matchOffset -= 0x4000
-					out = append(out,
-						byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)),
-						byte((matchOffset&63)<<2),
-						byte(matchOffset>>6))
-				}
-			} else { // match len >= 9
-				m := matchPos + maxLenM2 + 1
-				for inputPos < inputLen && in[m] == in[inputPos] {
-					m++
-					inputPos++
-				}
-				matchLen := inputPos - literalStart
-				if matchOffset <= maxOffsetM3 {
-					matchOffset--
-					if matchLen <= 33 {
-						out = append(out, byte(markerM3|(matchLen-2)))
-					} else {
-						matchLen -= 33
-						out = append(out, byte(markerM3))
-						out = appendMultiple(out, matchLen)
-					}
-				} else {
-					matchOffset -= 0x4000
-					if matchLen <= maxLenM4 {
-						out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)))
-					} else {
-						matchLen -= maxLenM4
-						out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)))
-						out = appendMultiple(out, matchLen)
-					}
-				}
-				out = append(out, byte((matchOffset&63)<<2), byte(matchOffset>>6))
-			}
-
-			literalStart = inputPos
+		if matched {
 			if inputPos >= inputLimit {
 				break
 			}
@@ -240,17 +158,7 @@ func compress1xFast(in []byte) []byte {
 
 	if literalTailSize > 0 {
 		ii := inLen - literalTailSize
-		if len(out) == 0 && literalTailSize <= 238 {
-			out = append(out, byte(17+literalTailSize))
-		} else if literalTailSize <= 3 {
-			out[len(out)-2] |= byte(literalTailSize)
-		} else if literalTailSize <= 18 {
-			out = append(out, byte(literalTailSize-3))
-		} else {
-			out = append(out, 0)
-			out = appendMultiple(out, literalTailSize-18)
-		}
-		out = append(out, in[ii:ii+literalTailSize]...)
+		out = appendLiteral(out, in[ii:ii+literalTailSize])
 	}
 
 	out = append(out, markerM4|1, 0, 0)
@@ -274,6 +182,30 @@ func findCandidate(dict []int32, in []byte, inputPos, dictIndex int) (matchPos i
 	}
 
 	return -1, 0
+}
+
+// appendLiteral appends a literal run and its header encoding.
+// lit must be non-empty.
+func appendLiteral(out []byte, lit []byte) []byte {
+	if len(lit) == 0 {
+		return out
+	}
+	literalCount := len(lit)
+
+	switch {
+	case len(out) == 0 && literalCount <= 238:
+		out = append(out, byte(17+literalCount))
+	case literalCount <= 3:
+		out[len(out)-2] |= byte(literalCount)
+	case literalCount <= 18:
+		out = append(out, byte(literalCount-3))
+	default:
+		out = append(out, 0)
+		out = appendMultiple(out, literalCount-18)
+	}
+
+	out = append(out, lit...)
+	return out
 }
 
 // appendMultiple appends a multiple of 255 to the output.

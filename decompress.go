@@ -187,7 +187,8 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 
 		case stateMatch:
 			trailingSourceByte = byte(instructionByte)
-			if instructionByte < 16 {
+			switch {
+			case instructionByte < 16:
 				// 2-byte short match (M1-style): distance = 1 + (t>>2) + (next<<2), length 2
 				b, err := readByte(src, &inputOffset, inputLen)
 				if err != nil {
@@ -199,7 +200,8 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 				}
 				outputOffset += 2
 				state = stateMatchDone
-			} else if instructionByte >= 64 {
+
+			case instructionByte >= 64:
 				// M2
 				b, err := readByte(src, &inputOffset, inputLen)
 				if err != nil {
@@ -214,7 +216,8 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 
 				outputOffset += matchLength
 				state = stateMatchDone
-			} else if instructionByte >= 32 {
+
+			case instructionByte >= 32:
 				// M2 long: length = (t&31)+2 or extended+2
 				matchLength = instructionByte & 31
 				if matchLength == 0 {
@@ -239,7 +242,8 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 
 				outputOffset += matchLength
 				state = stateMatchDone
-			} else {
+
+			default:
 				// M3 (16 <= instructionByte < 32) or terminator: length = (t&7)+2 or extended+2
 				mLenHigh := (instructionByte & 8) << 11
 				matchLength = instructionByte & 7
