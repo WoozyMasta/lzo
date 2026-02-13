@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Source: github.com/woozymasta/lzo
+
 package lzo
 
 // lzoCompressor holds state for LZO1X-999 compression of a single input buffer.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Source: github.com/woozymasta/lzo
+
 package lzo
 
 // copyBackRef copies length bytes from dst[outputPos-dist:outputPos-dist+length] to dst[outputPos:outputPos+length].

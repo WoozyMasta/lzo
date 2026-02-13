@@ -27,6 +27,7 @@ linters:
     - whitespace
     - staticcheck
     - zerologlint
+    - goheader
   exclusions:
     generated: lax
     presets:
@@ -36,6 +37,14 @@ linters:
       - builtin$
       - examples$
   settings:
+    goheader:
+      values:
+        const:
+          LICENSE: GPL-2.0-only
+          SOURCE: github.com/woozymasta/lzo
+      template: |-
+        SPDX-License-Identifier: {{ LICENSE }}
+        Source: {{ SOURCE }}
     tagliatelle:
       case:
         rules:

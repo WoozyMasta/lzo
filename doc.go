@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Source: github.com/woozymasta/lzo
+
 /*
 Package lzo implements LZO1X compression and decompression (lzo1x_decompress_safe–compatible).
 
