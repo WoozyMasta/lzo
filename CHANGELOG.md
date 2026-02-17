@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.2.0][] - 2026-02-17
+
+### Changed
+
+* Switched project license to MIT.
+* Reimplemented core logic from scratch based on MIT-licensed references
+  (without copying GPL code).
+
+[0.2.0]: https://github.com/WoozyMasta/lzo/compare/v0.1.3...v0.2.0
+
 ## [0.1.3][] - 2026-02-13
 
 ### Changed

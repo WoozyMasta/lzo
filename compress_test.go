@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
-// Source: github.com/woozymasta/lzo
-
 package lzo
 
 import (
@@ -116,6 +113,47 @@ func TestCompress_LevelClamping(t *testing.T) {
 	}
 	if !bytes.Equal(cmpHigh, cmpNine) {
 		t.Fatal("level > 9 should be clamped to level 9")
+	}
+}
+
+func TestCompress1X999Level_LevelClamping(t *testing.T) {
+	data := bytes.Repeat([]byte("compress-999-level"), 512)
+
+	cmpLow, err := Compress1X999Level(data, -10)
+	if err != nil {
+		t.Fatalf("Compress1X999Level(-10) failed: %v", err)
+	}
+
+	cmpOne, err := Compress1X999Level(data, 1)
+	if err != nil {
+		t.Fatalf("Compress1X999Level(1) failed: %v", err)
+	}
+
+	if !bytes.Equal(cmpLow, cmpOne) {
+		t.Fatal("level < 1 should clamp to level 1")
+	}
+
+	cmpHigh, err := Compress1X999Level(data, 100)
+	if err != nil {
+		t.Fatalf("Compress1X999Level(100) failed: %v", err)
+	}
+
+	cmpNine, err := Compress1X999Level(data, 9)
+	if err != nil {
+		t.Fatalf("Compress1X999Level(9) failed: %v", err)
+	}
+
+	if !bytes.Equal(cmpHigh, cmpNine) {
+		t.Fatal("level > 9 should clamp to level 9")
+	}
+
+	out, err := Decompress(cmpNine, DefaultDecompressOptions(len(data)))
+	if err != nil {
+		t.Fatalf("Decompress of Compress1X999Level output failed: %v", err)
+	}
+
+	if !bytes.Equal(out, data) {
+		t.Fatal("round-trip mismatch for Compress1X999Level")
 	}
 }
 

@@ -38,13 +38,10 @@ linters:
       - examples$
   settings:
     goheader:
-      values:
-        const:
-          LICENSE: GPL-2.0-only
-          SOURCE: github.com/woozymasta/lzo
       template: |-
-        SPDX-License-Identifier: {{ LICENSE }}
-        Source: {{ SOURCE }}
+        SPDX-License-Identifier: MIT
+        Copyright (c) 2026 WoozyMasta
+        Source: github.com/woozymasta/lzo
     tagliatelle:
       case:
         rules:

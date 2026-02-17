@@ -10,7 +10,7 @@ BENCH_REF   ?= bench_baseline.txt
 	tidy download tools tool-golangci-lint tool-betteralign tool-benchstat \
 	release-notes
 
-check: fmt-check vet lint align test
+check: verify fmt-check vet lint align test
 
 fmt:
 	gofmt -w .

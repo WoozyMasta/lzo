@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
 // Source: github.com/woozymasta/lzo
 
 package lzo
@@ -8,6 +9,7 @@ package lzo
 type DecompressOptions struct {
 	// OutLen is the expected decompressed size (required for buffer allocation and safety).
 	OutLen int
+
 	// MaxInputSize limits how many bytes DecompressFromReader may read (0 = no limit).
 	MaxInputSize int
 }

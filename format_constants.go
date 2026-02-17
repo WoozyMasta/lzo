@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
 // Source: github.com/woozymasta/lzo
 
 package lzo
@@ -16,13 +17,9 @@ const (
 
 // Match length bounds per type.
 const (
-	minLenM1 = 2
-	maxLenM1 = 2
 	minLenM2 = 3
 	maxLenM2 = 8
-	minLenM3 = 3
 	maxLenM3 = 33
-	minLenM4 = 3
 	maxLenM4 = 9
 )
 

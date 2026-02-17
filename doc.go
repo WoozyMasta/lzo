@@ -1,12 +1,16 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
 // Source: github.com/woozymasta/lzo
 
 /*
 Package lzo implements LZO1X compression and decompression (lzo1x_decompress_safe–compatible).
 
 The format uses match types M1–M4 with different offset and length bounds; the
-stream ends with a terminator (distance 0x4000, length 1). Suitable for archives
+stream ends with the standard terminator bytes `0x11 0x00 0x00`. Suitable for archives
 and binary formats that use LZO1X.
+
+The current encoder/decoder cores are MIT-licensed and implemented from permissive
+references. Main implementation reference: AxioDL/lzokay (MIT).
 
 # Decompress
 

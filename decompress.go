@@ -1,23 +1,19 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 WoozyMasta
 // Source: github.com/woozymasta/lzo
 
 package lzo
 
 import "io"
 
-// shortMatchBaseOffset is the base for the 3-byte match distance after a short literal run (0x0800).
-const shortMatchBaseOffset = 0x0800
-
-// decodeState is the current state of the LZO1X decoder state machine.
-type decodeState int
-
 const (
-	stateBeginLoop decodeState = iota
-	stateFirstLiteralRun
-	stateMatch
-	stateMatchDone
-	stateMatchNext
-	stateMatchEnd
+	// shortMatchBaseOffset is the base distance used by the short-match form
+	// selected when the parser is in state 4.
+	shortMatchBaseOffset = 0x0800
+
+	// maxZeroExtendedChunks limits zero-extension runs so malformed inputs cannot
+	// overflow run-length reconstruction math.
+	maxZeroExtendedChunks = int(^uint(0)/255) - 2
 )
 
 // Decompress decompresses LZO1X data from src into a buffer of length opts.OutLen.
@@ -95,267 +91,247 @@ func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) 
 // It writes starting at dst[0] and returns (bytes written, input bytes consumed, nil) on success.
 // On stream terminator it returns (outputOffset, inputOffset, nil). On error it returns (0, 0, err).
 func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
-	inputLen := len(src)
-	outputLen := len(dst)
-	if inputLen == 0 {
+	if len(src) == 0 {
 		return 0, 0, ErrEmptyInput
 	}
 
 	var (
-		state              decodeState
-		instructionByte    int
-		trailingSourceByte byte
-		runLength          int
-		matchLength        int
-		backRefDistance    int
-		inputOffset        int
-		outputOffset       int
+		inst      byte
+		state     int
+		nextState int
+		matchLen  int
+		matchDist int
+		inPos     int
+		outPos    int
 	)
 
-	// First byte: initial literal run or enter main loop.
-	instructionByte = int(src[inputOffset])
-	inputOffset++
-	if instructionByte > 17 {
-		runLength = instructionByte - 17
-		if inputOffset+runLength > inputLen || outputOffset+runLength > outputLen {
-			return 0, 0, ErrInputOverrun
-		}
+	inst, err = readCompressedByte(src, &inPos)
+	if err != nil {
+		return 0, 0, err
+	}
 
-		copy(dst[outputOffset:outputOffset+runLength], src[inputOffset:inputOffset+runLength])
-		inputOffset += runLength
-		outputOffset += runLength
-		if inputOffset >= inputLen {
-			return 0, 0, ErrUnexpectedEOF
+	// First byte can encode an initial literal run directly; otherwise it becomes
+	// the first instruction in the main decode loop.
+	switch {
+	case inst >= 22:
+		if err := copyLiteralRun(src, &inPos, dst, &outPos, int(inst)-17); err != nil {
+			return 0, 0, err
 		}
+		state = 4
 
-		instructionByte = int(src[inputOffset])
-		inputOffset++
-		state = stateFirstLiteralRun
-	} else {
-		state = stateBeginLoop
+	case inst >= 18:
+		nextState = int(inst - 17)
+		if err := copyLiteralRun(src, &inPos, dst, &outPos, nextState); err != nil {
+			return 0, 0, err
+		}
+		state = nextState
 	}
 
 	for {
-		switch state {
-		case stateBeginLoop:
-			if instructionByte >= 16 {
-				state = stateMatch
-				continue
+		// `inst` is already loaded for the very first iteration.
+		if inPos > 1 || state > 0 {
+			if inPos >= len(src) {
+				return 0, 0, ErrUnexpectedEOF
 			}
 
-			runLength = instructionByte
-			if runLength == 0 {
-				var err error
-				runLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 15)
-				if err != nil {
-					return 0, 0, err
-				}
-			}
+			inst = src[inPos]
+			inPos++
+		}
 
-			runLength += 3
-			if inputOffset+runLength > inputLen || outputOffset+runLength > outputLen {
-				return 0, 0, ErrInputOverrun
-			}
-
-			copy(dst[outputOffset:outputOffset+runLength], src[inputOffset:inputOffset+runLength])
-			inputOffset += runLength
-			outputOffset += runLength
-			if inputOffset >= inputLen {
-				return 0, 0, ErrInputOverrun
-			}
-
-			instructionByte = int(src[inputOffset])
-			inputOffset++
-			trailingSourceByte = byte(instructionByte)
-			state = stateFirstLiteralRun
-
-		case stateFirstLiteralRun:
-			if instructionByte >= 16 {
-				state = stateMatch
-				continue
-			}
-
-			b, err := readByte(src, &inputOffset, inputLen)
+		switch {
+		case inst >= markerM2:
+			b, err := readCompressedByte(src, &inPos)
 			if err != nil {
 				return 0, 0, err
 			}
 
-			backRefDistance = (1 + shortMatchBaseOffset) + (instructionByte >> 2) + (int(b) << 2)
-			if err := copyBackRef(dst, outputOffset, backRefDistance, 3); err != nil {
+			matchDist = (int(b) << 3) + ((int(inst) >> 2) & 0x7) + 1
+			matchLen = (int(inst) >> 5) + 1
+			nextState = int(inst & 0x03)
+
+		case inst >= markerM3:
+			matchLen = int(inst&0x1f) + 2
+			if matchLen == 2 {
+				ext, err := readZeroExtendedChunks(src, &inPos)
+				if err != nil {
+					return 0, 0, err
+				}
+
+				tail, err := readCompressedByte(src, &inPos)
+				if err != nil {
+					return 0, 0, err
+				}
+
+				matchLen += ext*255 + 31 + int(tail)
+			}
+
+			v16, err := readCompressedLE16(src, &inPos)
+			if err != nil {
 				return 0, 0, err
 			}
 
-			outputOffset += 3
-			state = stateMatchDone
+			matchDist = (int(v16) >> 2) + 1
+			nextState = int(v16 & 0x03)
 
-		case stateMatch:
-			trailingSourceByte = byte(instructionByte)
-			switch {
-			case instructionByte < 16:
-				// 2-byte short match (M1-style): distance = 1 + (t>>2) + (next<<2), length 2
-				b, err := readByte(src, &inputOffset, inputLen)
-				if err != nil {
-					return 0, 0, err
-				}
-				backRefDistance = 1 + (instructionByte >> 2) + (int(b) << 2)
-				if err := copyBackRef(dst, outputOffset, backRefDistance, 2); err != nil {
-					return 0, 0, err
-				}
-				outputOffset += 2
-				state = stateMatchDone
-
-			case instructionByte >= 64:
-				// M2
-				b, err := readByte(src, &inputOffset, inputLen)
+		case inst >= markerM4:
+			matchLen = int(inst&0x7) + 2
+			if matchLen == 2 {
+				ext, err := readZeroExtendedChunks(src, &inPos)
 				if err != nil {
 					return 0, 0, err
 				}
 
-				backRefDistance = ((instructionByte >> 2) & 7) + (int(b) << 3) + 1
-				matchLength = (instructionByte >> 5) - 1 + 2
-				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, 0, err
-				}
-
-				outputOffset += matchLength
-				state = stateMatchDone
-
-			case instructionByte >= 32:
-				// M2 long: length = (t&31)+2 or extended+2
-				matchLength = instructionByte & 31
-				if matchLength == 0 {
-					var err error
-					matchLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 31)
-					if err != nil {
-						return 0, 0, err
-					}
-				}
-				matchLength += 2
-
-				v16, err := readUint16LittleEndian(src, &inputOffset, inputLen)
+				tail, err := readCompressedByte(src, &inPos)
 				if err != nil {
 					return 0, 0, err
 				}
 
-				backRefDistance = (int(v16) >> 2) + 1
-				trailingSourceByte = byte(v16 & 0xFF)
-				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, 0, err
-				}
-
-				outputOffset += matchLength
-				state = stateMatchDone
-
-			default:
-				// M3 (16 <= instructionByte < 32) or terminator: length = (t&7)+2 or extended+2
-				mLenHigh := (instructionByte & 8) << 11
-				matchLength = instructionByte & 7
-				if matchLength == 0 {
-					var err error
-					matchLength, err = readZeroExtendedLength(src, &inputOffset, inputLen, 7)
-					if err != nil {
-						return 0, 0, err
-					}
-				}
-				matchLength += 2
-
-				v16, err := readUint16LittleEndian(src, &inputOffset, inputLen)
-				if err != nil {
-					return 0, 0, err
-				}
-
-				backRefDistance = (int(v16) >> 2) + mLenHigh
-				trailingSourceByte = byte(v16 & 0xFF)
-				if backRefDistance == 0 {
-					return outputOffset, inputOffset, nil
-				}
-
-				backRefDistance += 0x4000
-				if err := copyBackRef(dst, outputOffset, backRefDistance, matchLength); err != nil {
-					return 0, 0, err
-				}
-
-				outputOffset += matchLength
-				state = stateMatchDone
+				matchLen += ext*255 + 7 + int(tail)
 			}
 
-		case stateMatchDone:
-			trailingCount := int(trailingSourceByte & 3)
-			if trailingCount == 0 {
-				state = stateMatchEnd
+			v16, err := readCompressedLE16(src, &inPos)
+			if err != nil {
+				return 0, 0, err
+			}
+
+			baseDist := ((int(inst) & 0x8) << 11) + (int(v16) >> 2)
+			if baseDist == 0 {
+				// Stream terminator is encoded as M4 with distance=0 and length=3.
+				if matchLen != 3 {
+					return 0, 0, ErrInputOverrun
+				}
+
+				return outPos, inPos, nil
+			}
+
+			matchDist = baseDist + 0x4000
+			nextState = int(v16 & 0x03)
+
+		default:
+			if state == 0 {
+				// In state 0, this opcode form encodes a literal-run length directly
+				// (with optional zero-extension for long runs).
+				runLen := int(inst) + 3
+				if runLen == 3 {
+					ext, err := readZeroExtendedChunks(src, &inPos)
+					if err != nil {
+						return 0, 0, err
+					}
+
+					tail, err := readCompressedByte(src, &inPos)
+					if err != nil {
+						return 0, 0, err
+					}
+
+					runLen += ext*255 + 15 + int(tail)
+				}
+
+				if err := copyLiteralRun(src, &inPos, dst, &outPos, runLen); err != nil {
+					return 0, 0, err
+				}
+
+				// Keep historical behavior: a plain literal-run stream without terminator is malformed.
+				if inPos >= len(src) {
+					return 0, 0, ErrInputOverrun
+				}
+
+				state = 4
 				continue
 			}
 
-			if inputOffset+trailingCount > inputLen || outputOffset+trailingCount > outputLen {
-				return 0, 0, ErrInputOverrun
-			}
-			copy(dst[outputOffset:outputOffset+trailingCount], src[inputOffset:inputOffset+trailingCount])
-			outputOffset += trailingCount
-			inputOffset += trailingCount
-			if inputOffset >= inputLen {
-				return 0, 0, ErrUnexpectedEOF
+			// In non-zero states this opcode form is a short back-reference and
+			// needs one trailing byte to complete distance bits.
+			tail, err := readCompressedByte(src, &inPos)
+			if err != nil {
+				return 0, 0, err
 			}
 
-			instructionByte = int(src[inputOffset])
-			inputOffset++
-			state = stateMatchNext
+			nextState = int(inst & 0x03)
+			switch {
+			case state != 4:
+				// General short-match form: fixed length 2, distance starts at 1.
+				matchDist = (int(inst) >> 2) + (int(tail) << 2) + 1
+				matchLen = 2
 
-		case stateMatchNext:
-			state = stateMatch
-			continue
-
-		case stateMatchEnd:
-			if inputOffset >= inputLen {
-				return 0, 0, ErrUnexpectedEOF
+			default:
+				// Special short-match form used after a 4-literal tail.
+				matchDist = shortMatchBaseOffset + 1 + (int(inst) >> 2) + (int(tail) << 2)
+				matchLen = 3
 			}
-			instructionByte = int(src[inputOffset])
-			inputOffset++
-			state = stateBeginLoop
 		}
+
+		if err := copyBackRef(dst, outPos, matchDist, matchLen); err != nil {
+			return 0, 0, err
+		}
+
+		outPos += matchLen
+		if nextState > 0 {
+			if err := copyLiteralRun(src, &inPos, dst, &outPos, nextState); err != nil {
+				return 0, 0, err
+			}
+		}
+
+		state = nextState
 	}
 }
 
-// readByte reads one byte from src at *inputOffset; advances *inputOffset. Returns ErrInputOverrun if at end.
-func readByte(src []byte, inputOffset *int, inputLen int) (byte, error) {
-	if *inputOffset >= inputLen {
+// readCompressedByte reads one byte from src at *inPos and advances *inPos.
+func readCompressedByte(src []byte, inPos *int) (byte, error) {
+	if *inPos >= len(src) {
 		return 0, ErrInputOverrun
 	}
 
-	b := src[*inputOffset]
-	*inputOffset++
+	b := src[*inPos]
+	*inPos++
 
 	return b, nil
 }
 
-// readUint16LittleEndian reads two bytes little-endian from src at *inputOffset; advances *inputOffset by 2.
-func readUint16LittleEndian(src []byte, inputOffset *int, inputLen int) (uint16, error) {
-	if *inputOffset+2 > inputLen {
+// readCompressedLE16 reads one little-endian uint16 from src at *inPos and advances *inPos by 2.
+func readCompressedLE16(src []byte, inPos *int) (uint16, error) {
+	if *inPos+2 > len(src) {
 		return 0, ErrInputOverrun
 	}
 
-	lo := uint16(src[*inputOffset])
-	hi := uint16(src[*inputOffset+1])
-	*inputOffset += 2
+	lo := uint16(src[*inPos])
+	hi := uint16(src[*inPos+1])
+	*inPos += 2
 
 	return lo | hi<<8, nil
 }
 
-// readZeroExtendedLength reads a length encoded as zero-or-more 0 bytes then base+final byte.
-// Each 0 adds 255 to the length; the final non-zero byte b adds base+b.
-func readZeroExtendedLength(src []byte, inputOffset *int, inputLen int, base int) (int, error) {
-	length := 0
-	for {
-		if *inputOffset >= inputLen {
-			return 0, ErrInputOverrun
-		}
-
-		b := src[*inputOffset]
-		*inputOffset++
-		if b != 0 {
-			length += base + int(b)
-			return length, nil
-		}
-
-		length += 255
+// readZeroExtendedChunks consumes consecutive zero bytes and returns their count.
+func readZeroExtendedChunks(src []byte, inPos *int) (int, error) {
+	start := *inPos
+	for *inPos < len(src) && src[*inPos] == 0 {
+		*inPos++
 	}
+
+	count := *inPos - start
+	if count > maxZeroExtendedChunks {
+		return 0, ErrInputOverrun
+	}
+
+	return count, nil
+}
+
+// copyLiteralRun copies `n` bytes from src[*inPos:] to dst[*outPos:] and advances both pointers.
+func copyLiteralRun(src []byte, inPos *int, dst []byte, outPos *int, n int) error {
+	if n == 0 {
+		return nil
+	}
+
+	if *inPos+n > len(src) {
+		return ErrInputOverrun
+	}
+
+	if *outPos+n > len(dst) {
+		return ErrOutputOverrun
+	}
+
+	copy(dst[*outPos:*outPos+n], src[*inPos:*inPos+n])
+	*inPos += n
+	*outPos += n
+
+	return nil
 }
