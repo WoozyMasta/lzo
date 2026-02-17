@@ -58,24 +58,24 @@ func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
 					case matchOffset <= maxOffsetM2:
 						matchOffset--
 						out = append(out,
-							byte((((matchLen - 1) << 5) | ((matchOffset & 7) << 2))),
-							byte((matchOffset >> 3)),
+							opcodeByte(((matchLen-1)<<5)|((matchOffset&7)<<2)),
+							opcodeByte(matchOffset>>3),
 						)
 
 					case matchOffset <= maxOffsetM3:
 						matchOffset--
 						out = append(out,
-							byte(markerM3|(matchLen-2)),
-							byte((matchOffset&63)<<2),
-							byte(matchOffset>>6),
+							opcodeByte(markerM3|(matchLen-2)),
+							opcodeByte((matchOffset&63)<<2),
+							opcodeByte(matchOffset>>6),
 						)
 
 					default:
 						matchOffset -= 0x4000
 						out = append(out,
-							byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)),
-							byte((matchOffset&63)<<2),
-							byte(matchOffset>>6),
+							opcodeByte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)),
+							opcodeByte((matchOffset&63)<<2),
+							opcodeByte(matchOffset>>6),
 						)
 					}
 				} else {
@@ -90,23 +90,23 @@ func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
 					if matchOffset <= maxOffsetM3 {
 						matchOffset--
 						if matchLen <= 33 {
-							out = append(out, byte(markerM3|(matchLen-2)))
+							out = append(out, opcodeByte(markerM3|(matchLen-2)))
 						} else {
 							matchLen -= 33
-							out = append(out, byte(markerM3))
+							out = append(out, opcodeByte(markerM3))
 							out = appendFastMultiple(out, matchLen)
 						}
 					} else {
 						matchOffset -= 0x4000
 						if matchLen <= maxLenM4 {
-							out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)))
+							out = append(out, opcodeByte(markerM4|((matchOffset&0x4000)>>11)|(matchLen-2)))
 						} else {
 							matchLen -= maxLenM4
-							out = append(out, byte(markerM4|((matchOffset&0x4000)>>11)))
+							out = append(out, opcodeByte(markerM4|((matchOffset&0x4000)>>11)))
 							out = appendFastMultiple(out, matchLen)
 						}
 					}
-					out = append(out, byte((matchOffset&63)<<2), byte(matchOffset>>6))
+					out = append(out, opcodeByte((matchOffset&63)<<2), opcodeByte(matchOffset>>6))
 				}
 
 				// Next literal run, if any, starts after the emitted match.
@@ -190,11 +190,11 @@ func appendFastLiteral(out []byte, lit []byte) []byte {
 
 	switch {
 	case len(out) == 0 && literalCount <= 238:
-		out = append(out, byte(17+literalCount))
+		out = append(out, opcodeByte(17+literalCount))
 	case literalCount <= 3:
-		out[len(out)-2] |= byte(literalCount)
+		out[len(out)-2] |= opcodeByte(literalCount)
 	case literalCount <= 18:
-		out = append(out, byte(literalCount-3))
+		out = append(out, opcodeByte(literalCount-3))
 	default:
 		out = append(out, 0)
 		out = appendFastMultiple(out, literalCount-18)
@@ -211,6 +211,6 @@ func appendFastMultiple(out []byte, t int) []byte {
 		t -= 255
 	}
 
-	out = append(out, byte(t))
+	out = append(out, opcodeByte(t))
 	return out
 }

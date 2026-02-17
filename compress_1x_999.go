@@ -610,7 +610,7 @@ func encodeLiteralRun(out []byte, outPos *int, in []byte, literalStart, literalL
 	switch {
 	// First token can carry a compact literal-run prefix directly.
 	case *outPos == 0 && literalLen <= 238:
-		if err := writeByte(out, outPos, byte(17+literalLen)); err != nil {
+		if err := writeByte(out, outPos, opcodeByte(17+literalLen)); err != nil {
 			return err
 		}
 
@@ -619,11 +619,11 @@ func encodeLiteralRun(out []byte, outPos *int, in []byte, literalStart, literalL
 		if *outPos < 2 {
 			return ErrCompressInternal
 		}
-		out[*outPos-2] |= byte(literalLen)
+		out[*outPos-2] |= opcodeByte(literalLen)
 
 	// Medium literal runs use one explicit length byte.
 	case literalLen <= 18:
-		if err := writeByte(out, outPos, byte(literalLen-3)); err != nil {
+		if err := writeByte(out, outPos, opcodeByte(literalLen-3)); err != nil {
 			return err
 		}
 
@@ -646,36 +646,36 @@ func encodeLookbackMatch(out []byte, outPos *int, matchLen, matchOff, lastLitera
 	// M1, 2-byte match, nearest distance class.
 	case matchLen == 2:
 		matchOff--
-		if err := writeByte(out, outPos, byte(markerM1|((matchOff&0x3)<<2))); err != nil {
+		if err := writeByte(out, outPos, opcodeByte(markerM1|((matchOff&0x3)<<2))); err != nil {
 			return err
 		}
-		return writeByte(out, outPos, byte(matchOff>>2))
+		return writeByte(out, outPos, opcodeByte(matchOff>>2))
 
 	// M2, short/medium distance class.
 	case matchLen <= maxLenM2 && matchOff <= maxOffsetM2:
 		matchOff--
-		if err := writeByte(out, outPos, byte((matchLen-1)<<5|((matchOff&0x7)<<2))); err != nil {
+		if err := writeByte(out, outPos, opcodeByte((matchLen-1)<<5|((matchOff&0x7)<<2))); err != nil {
 			return err
 		}
-		return writeByte(out, outPos, byte(matchOff>>3))
+		return writeByte(out, outPos, opcodeByte(matchOff>>3))
 
 	// M1 special case after >=4 literals (LZO opcode quirk).
 	case matchLen == minLenM2 && matchOff <= maxOffsetMX && lastLiteralLen >= 4:
 		matchOff -= 1 + maxOffsetM2
-		if err := writeByte(out, outPos, byte(markerM1|((matchOff&0x3)<<2))); err != nil {
+		if err := writeByte(out, outPos, opcodeByte(markerM1|((matchOff&0x3)<<2))); err != nil {
 			return err
 		}
-		return writeByte(out, outPos, byte(matchOff>>2))
+		return writeByte(out, outPos, opcodeByte(matchOff>>2))
 
 	// M3, longer match with medium distance.
 	case matchOff <= maxOffsetM3:
 		matchOff--
 		if matchLen <= maxLenM3 {
-			if err := writeByte(out, outPos, byte(markerM3|(matchLen-2))); err != nil {
+			if err := writeByte(out, outPos, opcodeByte(markerM3|(matchLen-2))); err != nil {
 				return err
 			}
 		} else {
-			if err := writeByte(out, outPos, byte(markerM3)); err != nil {
+			if err := writeByte(out, outPos, opcodeByte(markerM3)); err != nil {
 				return err
 			}
 			if err := writeZeroByteLength(out, outPos, matchLen-maxLenM3); err != nil {
@@ -683,21 +683,21 @@ func encodeLookbackMatch(out []byte, outPos *int, matchLen, matchOff, lastLitera
 			}
 		}
 
-		if err := writeByte(out, outPos, byte((matchOff&0x3f)<<2)); err != nil {
+		if err := writeByte(out, outPos, opcodeByte((matchOff&0x3f)<<2)); err != nil {
 			return err
 		}
-		return writeByte(out, outPos, byte(matchOff>>6))
+		return writeByte(out, outPos, opcodeByte(matchOff>>6))
 
 	// M4, farthest distance class.
 	case matchOff <= maxOffsetM4:
 		matchOff -= 0x4000
 		head := (matchOff & 0x4000) >> 11
 		if matchLen <= maxLenM4 {
-			if err := writeByte(out, outPos, byte(markerM4|head|(matchLen-2))); err != nil {
+			if err := writeByte(out, outPos, opcodeByte(markerM4|head|(matchLen-2))); err != nil {
 				return err
 			}
 		} else {
-			if err := writeByte(out, outPos, byte(markerM4|head)); err != nil {
+			if err := writeByte(out, outPos, opcodeByte(markerM4|head)); err != nil {
 				return err
 			}
 			if err := writeZeroByteLength(out, outPos, matchLen-maxLenM4); err != nil {
@@ -705,10 +705,10 @@ func encodeLookbackMatch(out []byte, outPos *int, matchLen, matchOff, lastLitera
 			}
 		}
 
-		if err := writeByte(out, outPos, byte((matchOff&0x3f)<<2)); err != nil {
+		if err := writeByte(out, outPos, opcodeByte((matchOff&0x3f)<<2)); err != nil {
 			return err
 		}
-		return writeByte(out, outPos, byte(matchOff>>6))
+		return writeByte(out, outPos, opcodeByte(matchOff>>6))
 	}
 
 	return ErrCompressInternal
@@ -723,7 +723,7 @@ func writeZeroByteLength(out []byte, outPos *int, length int) error {
 		length -= 255
 	}
 
-	return writeByte(out, outPos, byte(length))
+	return writeByte(out, outPos, opcodeByte(length))
 }
 
 // writeByte writes one byte to out at *outPos.
