@@ -5,9 +5,9 @@
 package lzo
 
 // copyBackRef copies length bytes from dst[outputPos-dist:outputPos-dist+length] to dst[outputPos:outputPos+length].
-// If distance < length, source and destination overlap; copy must be byte-by-byte so that
-// repeated bytes (RLE) are correct. The built-in copy does not handle overlapping regions
-// where src precedes dst.
+// If dist < length, LZ semantics require "forward" expansion (newly written bytes become
+// valid source for the remainder of the match). We implement this using repeated doubling:
+// first copy one full distance chunk, then copy from already-expanded output.
 func copyBackRef(dst []byte, outputPos, dist, length int) error {
 	mPos := outputPos - dist
 	if mPos < 0 {
@@ -23,8 +23,14 @@ func copyBackRef(dst []byte, outputPos, dist, length int) error {
 		return nil
 	}
 
-	for i := range length {
-		dst[outputPos+i] = dst[mPos+i]
+	// Seed with one original distance chunk.
+	copy(dst[outputPos:outputPos+dist], dst[mPos:outputPos])
+	copied := dist
+
+	// Grow copied region exponentially, which is much cheaper than byte-by-byte loops.
+	for copied < length {
+		n := copy(dst[outputPos+copied:outputPos+length], dst[outputPos:outputPos+copied])
+		copied += n
 	}
 
 	return nil
