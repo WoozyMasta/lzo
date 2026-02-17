@@ -67,19 +67,14 @@ type hcCompressBuffer struct {
 type hcMatch3Table struct {
 	head    [hcHashSize]uint16   // head is the newest node for each 3-byte hash key.
 	chainSz [hcHashSize]uint16   // chainSz is the active node count for each hash key.
-	epoch   [hcHashSize]uint32   // epoch tracks whether a key belongs to the current run.
 	chain   [hcBufferSize]uint16 // chain stores the previous node pointer for each ring position.
 	slotKey [hcBufferSize]uint16 // slotKey stores the hash key used when a ring slot was inserted.
-	filled  [hcBufferSize]uint8  // filled marks whether slotKey for the ring slot is initialized.
 	bestLen [hcBufferSize]uint16 // bestLen caches the best match length found at each ring position.
-	runID   uint32               // runID is the current dictionary generation for O(1) resets.
 }
 
 // hcMatch2Table stores the short 2-byte match heads.
 type hcMatch2Table struct {
-	head  [1 << 16]uint16 // head stores the last seen node for each 2-byte key.
-	epoch [1 << 16]uint32 // epoch tracks whether a key belongs to the current run.
-	runID uint32          // runID is the current dictionary generation for O(1) resets.
+	head [1 << 16]uint16 // head stores the last seen node+1 for each 2-byte key; 0 means empty.
 }
 
 // hcCompressorDict owns all mutable state for one compression run.
@@ -468,25 +463,16 @@ func (s *hcState) posToOffset(pos int) int {
 
 // init resets match3 chain sizes for a fresh compression run.
 func (m *hcMatch3Table) init() {
-	m.runID++
-	if m.runID == 0 {
-		clear(m.epoch[:])
-		m.runID = 1
-	}
+	// Non-zero chainSz marks active keys for the current input.
+	// Clearing 16K entries once per run is cheaper than checking key epochs on each step.
+	clear(m.chainSz[:])
 }
 
 // remove removes a node from the 3-byte hash key count.
 func (m *hcMatch3Table) remove(pos int) {
-	if m.filled[pos] == 0 {
-		return
-	}
-
-	// Key is cached per slot to avoid recomputing hash during eviction.
+	// cycleCountdown guarantees eviction starts only after the ring is fully primed,
+	// so slotKey[pos] is always initialized for positions we evict.
 	key := int(m.slotKey[pos])
-	if m.epoch[key] != m.runID {
-		return
-	}
-
 	if m.chainSz[key] > 0 {
 		m.chainSz[key]--
 	}
@@ -496,15 +482,13 @@ func (m *hcMatch3Table) remove(pos int) {
 func (m *hcMatch3Table) advance(state *hcState, buffer *[hcBufferGuardSize]byte, searchDepth int) (uint16, int) {
 	key := match3Key(buffer, state.windB)
 
-	if m.epoch[key] != m.runID {
-		m.epoch[key] = m.runID
-		m.chainSz[key] = 0
+	count := int(m.chainSz[key])
+	head := uint16(hcNilNode)
+	if count > 0 {
+		head = m.head[key]
 	}
 
-	head := m.getHead(key)
-
 	m.chain[state.windB] = head
-	count := int(m.chainSz[key])
 	m.chainSz[key]++
 	if count > hcMaxMatchLen {
 		count = hcMaxMatchLen
@@ -514,8 +498,7 @@ func (m *hcMatch3Table) advance(state *hcState, buffer *[hcBufferGuardSize]byte,
 	}
 
 	m.slotKey[state.windB] = uint16(key) //nolint:gosec // G115: key is bounded by hcHashSize (0x4000)
-	m.filled[state.windB] = 1
-	m.head[key] = uint16(state.windB) //nolint:gosec // G115: ring index always fits uint16
+	m.head[key] = uint16(state.windB)    //nolint:gosec // G115: ring index always fits uint16
 	return head, count
 }
 
@@ -523,46 +506,29 @@ func (m *hcMatch3Table) advance(state *hcState, buffer *[hcBufferGuardSize]byte,
 func (m *hcMatch3Table) skipAdvance(state *hcState, buffer *[hcBufferGuardSize]byte) {
 	key := match3Key(buffer, state.windB)
 
-	if m.epoch[key] != m.runID {
-		m.epoch[key] = m.runID
-		m.chainSz[key] = 0
+	count := int(m.chainSz[key])
+	head := uint16(hcNilNode)
+	if count > 0 {
+		head = m.head[key]
 	}
 
-	m.chain[state.windB] = m.getHead(key)
+	m.chain[state.windB] = head
 	m.slotKey[state.windB] = uint16(key) //nolint:gosec // G115: key is bounded by hcHashSize (0x4000)
-	m.filled[state.windB] = 1
-	m.head[key] = uint16(state.windB) //nolint:gosec // G115: ring index always fits uint16
+	m.head[key] = uint16(state.windB)    //nolint:gosec // G115: ring index always fits uint16
 	m.bestLen[state.windB] = hcMaxMatchLen + 1
 	m.chainSz[key]++
 }
 
-// getHead returns the chain head for key or nil marker if chain is empty.
-func (m *hcMatch3Table) getHead(key int) uint16 {
-	if m.epoch[key] != m.runID {
-		return hcNilNode
-	}
-
-	if m.chainSz[key] == 0 {
-		return hcNilNode
-	}
-	return m.head[key]
-}
-
 // init resets match2 head table.
 func (m *hcMatch2Table) init() {
-	m.runID++
-	if m.runID == 0 {
-		clear(m.epoch[:])
-		m.runID = 1
-	}
+	clear(m.head[:])
 }
 
 // add stores current position for a 2-byte key.
 func (m *hcMatch2Table) add(pos int, buffer *[hcBufferGuardSize]byte) {
 	key := match2Key(buffer, pos)
 
-	m.head[key] = uint16(pos) //nolint:gosec // G115: ring index always fits uint16
-	m.epoch[key] = m.runID
+	m.head[key] = uint16(pos + 1) //nolint:gosec // G115: ring index+1 fits uint16
 }
 
 // search tries to find a short 2-byte match at the current position.
@@ -570,21 +536,19 @@ func (m *hcMatch2Table) add(pos int, buffer *[hcBufferGuardSize]byte) {
 func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, bestPosByLen *[hcBestTableSize]int, buffer *[hcBufferGuardSize]byte) bool {
 	key := match2Key(buffer, state.windB)
 
-	if m.epoch[key] != m.runID {
+	head := m.head[key]
+	if head == 0 {
 		return false
 	}
 
-	pos := m.head[key]
-	if pos == hcNilNode {
-		return false
-	}
+	pos := int(head) - 1
 
 	if bestPosByLen[2] == 0 {
-		bestPosByLen[2] = int(pos) + 1
+		bestPosByLen[2] = pos + 1
 	}
 	if *matchLen < 2 {
 		*matchLen = 2
-		*matchPos = int(pos)
+		*matchPos = pos
 	}
 
 	return true
@@ -817,11 +781,9 @@ func countEqualBytes(buffer *[hcBufferGuardSize]byte, leftPos, rightPos, matched
 
 // match3Key computes the 3-byte hash key used by match3 chains.
 func match3Key(buffer *[hcBufferGuardSize]byte, pos int) int {
-	a := uint32(buffer[pos])
-	b := uint32(buffer[pos+1])
-	c := uint32(buffer[pos+2])
-	mix := (((a << 5) ^ b) << 5) ^ c
-	return int((mix*0x9f5f)>>5) & (hcHashSize - 1)
+	// One unaligned 32-bit load is cheaper than 3 separate byte loads in this hot path.
+	v := *(*uint32)(unsafe.Pointer(&buffer[pos])) & 0x00ffffff
+	return int((v * 0x1e35a7bd) >> (32 - 14))
 }
 
 // match2Key computes the 2-byte key used by short-match lookup.
