@@ -473,9 +473,9 @@ func (m *hcMatch3Table) remove(pos int) {
 	// cycleCountdown guarantees eviction starts only after the ring is fully primed,
 	// so slotKey[pos] is always initialized for positions we evict.
 	key := int(m.slotKey[pos])
-	if m.chainSz[key] > 0 {
-		m.chainSz[key]--
-	}
+	// With one eviction per overwritten slot and one insertion per consumed byte,
+	// chainSz for this key cannot underflow in valid stream flow.
+	m.chainSz[key]--
 }
 
 // advance inserts current position into hash chains and returns chain head/count.
@@ -483,10 +483,9 @@ func (m *hcMatch3Table) advance(state *hcState, buffer *[hcBufferGuardSize]byte,
 	key := match3Key(buffer, state.windB)
 
 	count := int(m.chainSz[key])
-	head := uint16(hcNilNode)
-	if count > 0 {
-		head = m.head[key]
-	}
+	// count gates candidate traversal; when count==0, head may hold stale value from
+	// previous runs, but it is never dereferenced because search loop executes 0 steps.
+	head := m.head[key]
 
 	m.chain[state.windB] = head
 	m.chainSz[key]++
@@ -506,11 +505,8 @@ func (m *hcMatch3Table) advance(state *hcState, buffer *[hcBufferGuardSize]byte,
 func (m *hcMatch3Table) skipAdvance(state *hcState, buffer *[hcBufferGuardSize]byte) {
 	key := match3Key(buffer, state.windB)
 
-	count := int(m.chainSz[key])
-	head := uint16(hcNilNode)
-	if count > 0 {
-		head = m.head[key]
-	}
+	// Same rationale as in advance(): stale head is harmless while chainSz[key]==0.
+	head := m.head[key]
 
 	m.chain[state.windB] = head
 	m.slotKey[state.windB] = uint16(key) //nolint:gosec // G115: key is bounded by hcHashSize (0x4000)

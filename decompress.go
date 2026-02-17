@@ -20,52 +20,58 @@ const (
 // Returns ErrOptionsRequired if opts is nil; ErrEmptyInput if src is empty.
 // On success returns the decompressed slice (length may be less than OutLen if stream ended with terminator).
 func Decompress(src []byte, opts *DecompressOptions) ([]byte, error) {
-	if opts == nil {
-		return nil, ErrOptionsRequired
-	}
-
-	if len(src) == 0 {
-		return nil, ErrEmptyInput
-	}
-
-	outLen := opts.OutLen
-	if outLen < 0 {
-		return nil, ErrOptionsRequired
-	}
-
-	dst := make([]byte, outLen)
-	n, _, err := decompressCore(src, dst)
+	dst, err := makeDecompressBuffer(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	return dst[:n], nil
-}
-
-// DecompressN decompresses LZO1X data from src and returns the decoded slice,
-// the number of input bytes consumed (nRead), and an error.
-// nRead is 0 on error. Use this when advancing a stream (e.g. back-to-back compressed blocks).
-func DecompressN(src []byte, opts *DecompressOptions) ([]byte, int, error) {
-	if opts == nil {
-		return nil, 0, ErrOptionsRequired
+	out, _, err := DecompressNInto(src, dst)
+	if err != nil {
+		return nil, err
 	}
 
+	return out, nil
+}
+
+// DecompressInto decompresses src into caller-provided dst and returns dst[:n].
+// This avoids per-call output allocation and is useful in hot loops where dst can be reused.
+func DecompressInto(src []byte, dst []byte) ([]byte, error) {
+	out, _, err := DecompressNInto(src, dst)
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// DecompressNInto decompresses src into caller-provided dst and returns:
+// 1) decoded output slice (dst[:n]),
+// 2) consumed input bytes (nRead),
+// 3) error.
+// nRead is 0 on error.
+func DecompressNInto(src []byte, dst []byte) ([]byte, int, error) {
 	if len(src) == 0 {
 		return nil, 0, ErrEmptyInput
 	}
 
-	outLen := opts.OutLen
-	if outLen < 0 {
-		return nil, 0, ErrOptionsRequired
-	}
-
-	dst := make([]byte, outLen)
 	outWritten, inConsumed, err := decompressCore(src, dst)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	return dst[:outWritten], inConsumed, nil
+}
+
+// DecompressN decompresses LZO1X data from src and returns the decoded slice,
+// the number of input bytes consumed (nRead), and an error.
+// nRead is 0 on error. Use this when advancing a stream (e.g. back-to-back compressed blocks).
+func DecompressN(src []byte, opts *DecompressOptions) ([]byte, int, error) {
+	dst, err := makeDecompressBuffer(opts)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return DecompressNInto(src, dst)
 }
 
 // DecompressFromReader reads the full stream then calls Decompress. No decoding logic of its own.
@@ -85,6 +91,20 @@ func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) 
 	}
 
 	return Decompress(src, opts)
+}
+
+// makeDecompressBuffer validates options and allocates destination buffer for decode.
+func makeDecompressBuffer(opts *DecompressOptions) ([]byte, error) {
+	if opts == nil {
+		return nil, ErrOptionsRequired
+	}
+
+	outLen := opts.OutLen
+	if outLen < 0 {
+		return nil, ErrOptionsRequired
+	}
+
+	return make([]byte, outLen), nil
 }
 
 // decompressCore decompresses LZO1X data from src into dst using a state machine.

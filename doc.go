@@ -23,6 +23,12 @@ To get the number of input bytes consumed (e.g. for back-to-back compressed bloc
 	out, nRead, err := lzo.DecompressN(compressed, lzo.DefaultDecompressOptions(expectedLen))
 	// advance: compressed = compressed[nRead:]
 
+To reuse caller-managed output memory (no per-call output allocation):
+
+	dst := make([]byte, expectedLen)
+	out, err := lzo.DecompressInto(compressed, dst)
+	out, nRead, err := lzo.DecompressNInto(compressed, dst)
+
 From an io.Reader (e.g. stream with known decompressed size):
 
 	out, err := lzo.DecompressFromReader(r, lzo.DefaultDecompressOptions(expectedLen))

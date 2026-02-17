@@ -54,6 +54,16 @@ _ = out
 compressed = compressed[nRead:]
 ```
 
+Reuse caller-owned output buffer (no per-call output allocation):
+
+```go
+dst := make([]byte, expectedLen)
+out, err := lzo.DecompressInto(compressed, dst)
+out, nRead, err := lzo.DecompressNInto(compressed, dst)
+_ = out
+compressed = compressed[nRead:]
+```
+
 From an `io.Reader` (e.g. stream with known decompressed size):
 
 ```go

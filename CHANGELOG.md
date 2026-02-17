@@ -15,11 +15,16 @@ and this project adheres to [Semantic Versioning][].
 
 ## [0.2.0][] - 2026-02-17
 
+### Added
+
+* Added `DecompressInto` and `DecompressNInto` for zero-allocation decode into caller-provided buffers.
+
 ### Changed
 
 * Switched project license to MIT.
 * Reimplemented core logic from scratch based on MIT-licensed references
   (without copying GPL code).
+* Improved compression and decompression throughput across benchmarked workloads.
 
 [0.2.0]: https://github.com/WoozyMasta/lzo/compare/v0.1.3...v0.2.0
 

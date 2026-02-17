@@ -114,6 +114,66 @@ func TestDecompressN_ReturnsConsumedBytes(t *testing.T) {
 	}
 }
 
+func TestDecompressInto_ReusesCallerBuffer(t *testing.T) {
+	data := bytes.Repeat([]byte("decode-into"), 256)
+	cmp, err := Compress(data, &CompressOptions{Level: 5})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	dst := make([]byte, len(data))
+	out, err := DecompressInto(cmp, dst)
+	if err != nil {
+		t.Fatalf("DecompressInto failed: %v", err)
+	}
+
+	if len(out) != len(data) {
+		t.Fatalf("decoded length mismatch: got=%d want=%d", len(out), len(data))
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
+	}
+	if len(out) > 0 && &out[0] != &dst[0] {
+		t.Fatal("DecompressInto should return a slice over provided destination buffer")
+	}
+}
+
+func TestDecompressNInto_ReturnsConsumedBytes(t *testing.T) {
+	data := bytes.Repeat([]byte("concat-block"), 180)
+	cmp, err := Compress(data, &CompressOptions{Level: 9})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	src := append(append([]byte(nil), cmp...), []byte("tail")...)
+	dst := make([]byte, len(data))
+
+	out, nRead, err := DecompressNInto(src, dst)
+	if err != nil {
+		t.Fatalf("DecompressNInto failed: %v", err)
+	}
+
+	if nRead != len(cmp) {
+		t.Fatalf("nRead mismatch: got=%d want=%d", nRead, len(cmp))
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
+	}
+}
+
+func TestDecompressInto_BufferTooSmall(t *testing.T) {
+	data := bytes.Repeat([]byte("small-buffer"), 128)
+	cmp, err := Compress(data, &CompressOptions{Level: 5})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	_, err = DecompressInto(cmp, make([]byte, len(data)-1))
+	if !errors.Is(err, ErrOutputOverrun) {
+		t.Fatalf("expected ErrOutputOverrun, got %v", err)
+	}
+}
+
 func TestCopyBackRef(t *testing.T) {
 	t.Run("non-overlapping", func(t *testing.T) {
 		dst := []byte("abcdefghXXXXXXXX")

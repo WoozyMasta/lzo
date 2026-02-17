@@ -67,6 +67,37 @@ func BenchmarkDecompress(b *testing.B) {
 	}
 }
 
+func BenchmarkDecompressInto(b *testing.B) {
+	levels := []int{1, 5, 9}
+	for inputName, inputData := range benchmarkInputSets() {
+		for _, level := range levels {
+			compressedData, err := Compress(inputData, &CompressOptions{Level: level})
+			if err != nil {
+				b.Fatalf("setup Compress failed for %s level %d: %v", inputName, level, err)
+			}
+
+			dst := make([]byte, len(inputData))
+			if _, err := DecompressInto(compressedData, dst); err != nil {
+				b.Fatalf("setup DecompressInto failed for %s level %d: %v", inputName, level, err)
+			}
+
+			name := fmt.Sprintf("%s/from-level-%d", inputName, level)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				b.SetBytes(int64(len(inputData)))
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					_, err := DecompressInto(compressedData, dst)
+					if err != nil {
+						b.Fatalf("DecompressInto failed: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkRoundTrip(b *testing.B) {
 	inputData := bytes.Repeat([]byte("RoundTripData"), 16384)
 	opts := &CompressOptions{Level: 9}
