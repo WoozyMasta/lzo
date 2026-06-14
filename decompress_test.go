@@ -211,3 +211,40 @@ func TestCopyBackRef(t *testing.T) {
 		}
 	})
 }
+
+func TestCopyBackRefMatchesBytewiseReference(t *testing.T) {
+	for outputPos := 1; outputPos <= 64; outputPos++ {
+		for dist := 1; dist <= outputPos; dist++ {
+			for length := 1; length <= 128; length++ {
+				got := make([]byte, outputPos+length)
+				for i := range got[:outputPos] {
+					got[i] = byte(i*31 + 7)
+				}
+				want := append([]byte(nil), got...)
+
+				for i := 0; i < length; i++ {
+					want[outputPos+i] = want[outputPos-dist+i]
+				}
+				if err := copyBackRef(got, outputPos, dist, length); err != nil {
+					t.Fatalf("outputPos=%d dist=%d length=%d: %v", outputPos, dist, length, err)
+				}
+				if !bytes.Equal(got, want) {
+					t.Fatalf("outputPos=%d dist=%d length=%d: output mismatch", outputPos, dist, length)
+				}
+			}
+		}
+	}
+}
+
+func FuzzDecompressIntoMalformedInput(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{markerM4 | 1, 0, 0})
+	f.Add([]byte{0x12, 0x00, 0x20, 0x00, 0xdf, 0x00, 0x00, 0x11, 0x00, 0x00})
+
+	f.Fuzz(func(t *testing.T, src []byte) {
+		if len(src) > 1<<16 {
+			src = src[:1<<16]
+		}
+		_, _ = DecompressInto(src, make([]byte, 1<<16))
+	})
+}
