@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+type countingReader struct {
+	n int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(i)
+	}
+	r.n += len(p)
+	return len(p), nil
+}
+
 func TestDecompress_OptionsRequired(t *testing.T) {
 	_, err := Decompress([]byte{0x11, 0x00}, nil)
 	if !errors.Is(err, ErrOptionsRequired) {
@@ -74,6 +86,39 @@ func TestDecompressFromReader_MaxInputSize(t *testing.T) {
 	_, err = DecompressFromReader(bytes.NewReader(cmp), opts)
 	if !errors.Is(err, ErrInputTooLarge) {
 		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+}
+
+func TestDecompressFromReader_MaxInputSizeBoundsRead(t *testing.T) {
+	const maxInputSize = 1024
+	reader := &countingReader{}
+	opts := DefaultDecompressOptions(0)
+	opts.MaxInputSize = maxInputSize
+
+	_, err := DecompressFromReader(reader, opts)
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+	if reader.n != maxInputSize+1 {
+		t.Fatalf("read %d bytes, want %d", reader.n, maxInputSize+1)
+	}
+}
+
+func TestDecompressFromReader_MaxInputSizeAllowsExactLimit(t *testing.T) {
+	data := bytes.Repeat([]byte("exact-limit"), 100)
+	cmp, err := Compress(data, nil)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	opts := DefaultDecompressOptions(len(data))
+	opts.MaxInputSize = len(cmp)
+	out, err := DecompressFromReader(bytes.NewReader(cmp), opts)
+	if err != nil {
+		t.Fatalf("DecompressFromReader failed: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
 	}
 }
 

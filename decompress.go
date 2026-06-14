@@ -74,14 +74,27 @@ func DecompressN(src []byte, opts *DecompressOptions) ([]byte, int, error) {
 	return DecompressNInto(src, dst)
 }
 
-// DecompressFromReader reads the full stream then calls Decompress. No decoding logic of its own.
-// If opts.MaxInputSize > 0 and more bytes are read, returns ErrInputTooLarge.
+// DecompressFromReader reads the stream then calls Decompress.
+// No decoding logic of its own.
+// If opts.MaxInputSize > 0, reads at most MaxInputSize+1 bytes
+// and returns ErrInputTooLarge when the input exceeds the limit.
 func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) {
 	if opts == nil {
 		return nil, ErrOptionsRequired
 	}
 
-	src, err := io.ReadAll(r)
+	var src []byte
+	var err error
+	if opts.MaxInputSize > 0 {
+		limit := int64(opts.MaxInputSize)
+		if limit < 1<<63-1 {
+			limit++
+		}
+		limited := io.LimitedReader{R: r, N: limit}
+		src, err = io.ReadAll(&limited)
+	} else {
+		src, err = io.ReadAll(r)
+	}
 	if err != nil {
 		return nil, err
 	}
