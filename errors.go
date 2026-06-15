@@ -32,4 +32,7 @@ var (
 	// ErrCompressInternal is returned when the compressor hits an internal invariant violation
 	// (e.g. invalid match state, invalid window state). Callers can use errors.Is(err, lzo.ErrCompressInternal).
 	ErrCompressInternal = errors.New("internal compressor error")
+
+	// ErrCompressBufferTooSmall is returned when CompressInto dst is smaller than MaxCompressedSize.
+	ErrCompressBufferTooSmall = errors.New("compression output buffer too small")
 )

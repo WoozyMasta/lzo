@@ -105,10 +105,49 @@ func BenchmarkCompress(b *testing.B) {
 	}
 }
 
+func BenchmarkCompressInto(b *testing.B) {
+	benchmarkCompressCallerBuffer(b, false)
+}
+
+func BenchmarkAppendCompress(b *testing.B) {
+	benchmarkCompressCallerBuffer(b, true)
+}
+
+func benchmarkCompressCallerBuffer(b *testing.B, appendMode bool) {
+	for _, input := range benchmarkCompressionInputs() {
+		for _, level := range benchmarkLevels {
+			name := fmt.Sprintf("%s/level-%d", input.name, level)
+			b.Run(name, func(b *testing.B) {
+				opts := &CompressOptions{Level: level}
+				dst := make([]byte, MaxCompressedSize(len(input.data)))
+				var compressed []byte
+				var err error
+
+				b.ReportAllocs()
+				b.SetBytes(int64(len(input.data)))
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					if appendMode {
+						compressed, err = AppendCompress(dst[:0], input.data, opts)
+					} else {
+						compressed, err = CompressInto(input.data, dst, opts)
+					}
+					if err != nil {
+						b.Fatalf("compression failed: %v", err)
+					}
+				}
+
+				reportCompressionMetrics(b, compressed, input.data)
+			})
+		}
+	}
+}
+
 func BenchmarkCompress999Core(b *testing.B) {
 	input := benchmarkMixedBytes(256 << 10)
 	dict := &hcCompressorDict{}
-	out := make([]byte, maxCompressedSize(len(input)))
+	out := make([]byte, MaxCompressedSize(len(input)))
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(input)))

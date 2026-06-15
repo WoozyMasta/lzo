@@ -39,5 +39,11 @@ Options may be nil (default level 1). Level 0 or 1 = fast LZO1X-1; 2–9 = LZO1X
 
 	out, err := lzo.Compress(data, nil)
 	out, err := lzo.Compress(data, &lzo.CompressOptions{Level: 9})
+
+To reuse caller-managed output memory:
+
+	dst := make([]byte, lzo.MaxCompressedSize(len(data)))
+	out, err := lzo.CompressInto(data, dst, nil)
+	out, err := lzo.AppendCompress(dst[:0], data, nil)
 */
 package lzo

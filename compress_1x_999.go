@@ -123,7 +123,7 @@ func compress999Level(in []byte, level int) ([]byte, error) {
 	dict := acquireCompressorDict()
 	defer releaseCompressorDict(dict)
 
-	temp := acquireCompressBuffer(maxCompressedSize(len(in)))
+	temp := acquireCompressBuffer(MaxCompressedSize(len(in)))
 	defer releaseCompressBuffer(temp)
 
 	outLen, err := compress999NoAlloc(in, temp.data, dict, level)
@@ -251,11 +251,6 @@ func releaseCompressBuffer(buf *hcCompressBuffer) {
 	// Keep capacity for reuse; logical length is reset by acquireCompressBuffer.
 	buf.data = buf.data[:cap(buf.data)]
 	hcCompressBufferPool.Put(buf)
-}
-
-// maxCompressedSize returns the worst-case output size for LZO streams.
-func maxCompressedSize(inLen int) int {
-	return inLen + inLen/16 + 64 + 3
 }
 
 // init prepares dictionary and state for a new compression run.

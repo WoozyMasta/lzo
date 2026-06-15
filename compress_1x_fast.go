@@ -5,7 +5,7 @@
 package lzo
 
 // compress1xFastCore performs the fast LZO1X-1 parse and returns pending literal tail.
-func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
+func compress1xFastCore(out, in []byte) ([]byte, int) {
 	inputLen := len(in)
 	inputLimit := inputLen - maxLenM2 - 5
 	dict := make([]int32, 1<<dictBits)
@@ -136,20 +136,19 @@ func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
 		}
 	}
 
-	literalTailSize = inputLen - literalStart
-	return
+	literalTailSize := inputLen - literalStart
+	return out, literalTailSize
 }
 
 // compress1xFast is the fast LZO1X-1 compressor (level 0 or 1).
-func compress1xFast(in []byte) []byte {
+func compress1xFast(out, in []byte) []byte {
 	var literalTailSize int
 	inLen := len(in)
 
-	var out []byte
 	if inLen <= maxLenM2+5 {
 		literalTailSize = inLen
 	} else {
-		out, literalTailSize = compress1xFastCore(in)
+		out, literalTailSize = compress1xFastCore(out, in)
 	}
 
 	if literalTailSize > 0 {
