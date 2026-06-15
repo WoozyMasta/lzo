@@ -221,14 +221,22 @@ func BenchmarkDecompressInto(b *testing.B) {
 }
 
 func BenchmarkDecompressFromReader(b *testing.B) {
-	benchmarkDecompressFromReader(b, false)
+	benchmarkDecompressFromReader(b, false, false)
 }
 
 func BenchmarkDecompressFromReaderLimited(b *testing.B) {
-	benchmarkDecompressFromReader(b, true)
+	benchmarkDecompressFromReader(b, true, false)
 }
 
-func benchmarkDecompressFromReader(b *testing.B, limited bool) {
+func BenchmarkDecompressFromReaderInto(b *testing.B) {
+	benchmarkDecompressFromReader(b, false, true)
+}
+
+func BenchmarkDecompressFromReaderIntoLimited(b *testing.B) {
+	benchmarkDecompressFromReader(b, true, true)
+}
+
+func benchmarkDecompressFromReader(b *testing.B, limited, into bool) {
 	for _, input := range benchmarkDecompressionInputs() {
 		compressed, err := Compress(input.data, &CompressOptions{Level: 1})
 		if err != nil {
@@ -240,6 +248,7 @@ func benchmarkDecompressFromReader(b *testing.B, limited bool) {
 			opts.MaxInputSize = len(compressed)
 		}
 		reader := bytes.NewReader(compressed)
+		dst := make([]byte, len(input.data))
 		b.Run(input.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(input.data)))
@@ -247,7 +256,13 @@ func benchmarkDecompressFromReader(b *testing.B, limited bool) {
 
 			for i := 0; i < b.N; i++ {
 				reader.Reset(compressed)
-				if _, err := DecompressFromReader(reader, opts); err != nil {
+				var err error
+				if into {
+					_, err = DecompressFromReaderInto(reader, dst, opts)
+				} else {
+					_, err = DecompressFromReader(reader, opts)
+				}
+				if err != nil {
 					b.Fatalf("DecompressFromReader failed: %v", err)
 				}
 			}

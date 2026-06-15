@@ -26,7 +26,7 @@ var (
 	// ErrOptionsRequired is returned when Decompress is called with nil options (OutLen is required).
 	ErrOptionsRequired = errors.New("options required: OutLen must be set")
 
-	// ErrInputTooLarge is returned when DecompressFromReader reads more than MaxInputSize bytes.
+	// ErrInputTooLarge is returned when a reader API reads more than MaxInputSize bytes.
 	ErrInputTooLarge = errors.New("input exceeds MaxInputSize")
 
 	// ErrCompressInternal is returned when the compressor hits an internal invariant violation

@@ -32,6 +32,7 @@ To reuse caller-managed output memory (no per-call output allocation):
 From an io.Reader (e.g. stream with known decompressed size):
 
 	out, err := lzo.DecompressFromReader(r, lzo.DefaultDecompressOptions(expectedLen))
+	out, err := lzo.DecompressFromReaderInto(r, dst, lzo.DefaultDecompressOptions(expectedLen))
 
 # Compress
 

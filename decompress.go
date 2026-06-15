@@ -83,10 +83,38 @@ func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) 
 		return nil, ErrOptionsRequired
 	}
 
+	src, err := readCompressedStream(r, opts.MaxInputSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return Decompress(src, opts)
+}
+
+// DecompressFromReaderInto reads the stream then decompresses it into caller-provided dst.
+// opts.OutLen limits the writable destination and opts.MaxInputSize limits input reads.
+func DecompressFromReaderInto(r io.Reader, dst []byte, opts *DecompressOptions) ([]byte, error) {
+	if opts == nil || opts.OutLen < 0 {
+		return nil, ErrOptionsRequired
+	}
+	if len(dst) < opts.OutLen {
+		return nil, ErrOutputOverrun
+	}
+
+	src, err := readCompressedStream(r, opts.MaxInputSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecompressInto(src, dst[:opts.OutLen])
+}
+
+// readCompressedStream reads a complete compressed stream with an optional size limit.
+func readCompressedStream(r io.Reader, maxInputSize int) ([]byte, error) {
 	var src []byte
 	var err error
-	if opts.MaxInputSize > 0 {
-		limit := int64(opts.MaxInputSize)
+	if maxInputSize > 0 {
+		limit := int64(maxInputSize)
 		if limit < 1<<63-1 {
 			limit++
 		}
@@ -99,11 +127,11 @@ func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) 
 		return nil, err
 	}
 
-	if opts.MaxInputSize > 0 && len(src) > opts.MaxInputSize {
+	if maxInputSize > 0 && len(src) > maxInputSize {
 		return nil, ErrInputTooLarge
 	}
 
-	return Decompress(src, opts)
+	return src, nil
 }
 
 // makeDecompressBuffer validates options and allocates destination buffer for decode.

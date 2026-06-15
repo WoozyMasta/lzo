@@ -122,6 +122,61 @@ func TestDecompressFromReader_MaxInputSizeAllowsExactLimit(t *testing.T) {
 	}
 }
 
+func TestDecompressFromReaderInto_ReusesCallerBuffer(t *testing.T) {
+	data := bytes.Repeat([]byte("reader-into"), 1024)
+	cmp, err := Compress(data, &CompressOptions{Level: 5})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	dst := make([]byte, len(data)+32)
+	opts := DefaultDecompressOptions(len(data))
+	opts.MaxInputSize = len(cmp)
+	out, err := DecompressFromReaderInto(bytes.NewReader(cmp), dst, opts)
+	if err != nil {
+		t.Fatalf("DecompressFromReaderInto failed: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
+	}
+	if len(out) > 0 && &out[0] != &dst[0] {
+		t.Fatal("DecompressFromReaderInto should return a slice over provided destination buffer")
+	}
+}
+
+func TestDecompressFromReaderInto_ValidatesDestinationBeforeRead(t *testing.T) {
+	reader := &countingReader{}
+	_, err := DecompressFromReaderInto(reader, make([]byte, 7), DefaultDecompressOptions(8))
+	if !errors.Is(err, ErrOutputOverrun) {
+		t.Fatalf("expected ErrOutputOverrun, got %v", err)
+	}
+	if reader.n != 0 {
+		t.Fatalf("read %d bytes before destination validation", reader.n)
+	}
+}
+
+func TestDecompressFromReaderInto_MaxInputSizeBoundsRead(t *testing.T) {
+	const maxInputSize = 1024
+	reader := &countingReader{}
+	opts := DefaultDecompressOptions(0)
+	opts.MaxInputSize = maxInputSize
+
+	_, err := DecompressFromReaderInto(reader, nil, opts)
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+	if reader.n != maxInputSize+1 {
+		t.Fatalf("read %d bytes, want %d", reader.n, maxInputSize+1)
+	}
+}
+
+func TestDecompressFromReaderInto_OptionsRequired(t *testing.T) {
+	_, err := DecompressFromReaderInto(strings.NewReader("\x00"), nil, nil)
+	if !errors.Is(err, ErrOptionsRequired) {
+		t.Fatalf("expected ErrOptionsRequired, got %v", err)
+	}
+}
+
 func TestDecompressN_ReturnsConsumedBytes(t *testing.T) {
 	data := bytes.Repeat([]byte("0123456789"), 100)
 	cmp, err := Compress(data, nil)
