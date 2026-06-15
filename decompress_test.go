@@ -11,6 +11,19 @@ type countingReader struct {
 	n int
 }
 
+func copyBackRef(dst []byte, outputPos, dist, length int) error {
+	matchPos := outputPos - dist
+	if matchPos < 0 {
+		return ErrLookBehindUnderrun
+	}
+	if outputPos+length > len(dst) {
+		return ErrOutputOverrun
+	}
+
+	copyBackRefUnchecked(dst, outputPos, matchPos, dist, length)
+	return nil
+}
+
 func (r *countingReader) Read(p []byte) (int, error) {
 	for i := range p {
 		p[i] = byte(i)

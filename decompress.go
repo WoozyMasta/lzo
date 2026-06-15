@@ -321,10 +321,15 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 			}
 		}
 
-		if err := copyBackRef(dst, outPos, matchDist, matchLen); err != nil {
-			return 0, 0, err
+		matchPos := outPos - matchDist
+		if matchPos < 0 {
+			return 0, 0, ErrLookBehindUnderrun
+		}
+		if outPos+matchLen > len(dst) {
+			return 0, 0, ErrOutputOverrun
 		}
 
+		copyBackRefUnchecked(dst, outPos, matchPos, matchDist, matchLen)
 		outPos += matchLen
 		if nextState > 0 {
 			if err := copyLiteralRun(src, &inPos, dst, &outPos, nextState); err != nil {
