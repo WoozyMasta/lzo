@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
-## Unreleased
+## [0.3.0][] - 2026-06-15
 
 ### Added
 
@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning][].
 
 * Enforced `DecompressFromReader` input limits while reading,
   preventing reads and allocations beyond `MaxInputSize`.
+
+[0.3.0]: https://github.com/WoozyMasta/lzo/compare/v0.2.0...v0.3.0
 
 ## [0.2.0][] - 2026-02-17
 
