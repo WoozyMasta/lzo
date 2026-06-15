@@ -3,6 +3,7 @@ package lzo
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -157,6 +158,26 @@ func BenchmarkCompress999Core(b *testing.B) {
 		if _, err := compress999NoAlloc(input, out, dict, 9); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkCompress999BufferPool(b *testing.B) {
+	for _, size := range []int{256 << 10, 16 << 20} {
+		b.Run(fmt.Sprintf("%dKiB", size>>10), func(b *testing.B) {
+			hcCompressBufferPool = sync.Pool{}
+			b.Cleanup(func() {
+				hcCompressBufferPool = sync.Pool{}
+			})
+
+			b.ReportAllocs()
+			b.SetBytes(int64(size))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				buf := acquireCompressBuffer(size)
+				releaseCompressBuffer(buf)
+			}
+		})
 	}
 }
 

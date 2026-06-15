@@ -31,6 +31,10 @@ const (
 
 	// hcNilNode marks an empty hash-chain node.
 	hcNilNode = 0xffff
+
+	// hcMaxRetainedCompressBuffer limits heap retained by the shared temporary-output pool.
+	// Larger callers should use CompressInto or AppendCompress for deterministic reuse.
+	hcMaxRetainedCompressBuffer = 1 << 20
 )
 
 // hcSearchDepthByLevel maps compression level (1..9) to hash-chain probe depth.
@@ -253,10 +257,18 @@ func releaseCompressBuffer(buf *hcCompressBuffer) {
 	if buf == nil {
 		return
 	}
+	if !canRetainCompressBuffer(buf) {
+		buf.data = nil
+		return
+	}
 
 	// Keep capacity for reuse; logical length is reset by acquireCompressBuffer.
 	buf.data = buf.data[:cap(buf.data)]
 	hcCompressBufferPool.Put(buf)
+}
+
+func canRetainCompressBuffer(buf *hcCompressBuffer) bool {
+	return buf != nil && cap(buf.data) <= hcMaxRetainedCompressBuffer
 }
 
 // init prepares dictionary and state for a new compression run.

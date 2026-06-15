@@ -310,6 +310,28 @@ func TestMaxCompressedSize(t *testing.T) {
 	}
 }
 
+func TestCompressBufferPoolRetentionLimit(t *testing.T) {
+	for _, tc := range []struct {
+		capacity int
+		want     bool
+	}{
+		{capacity: hcMaxRetainedCompressBuffer - 1, want: true},
+		{capacity: hcMaxRetainedCompressBuffer, want: true},
+		{capacity: hcMaxRetainedCompressBuffer + 1, want: false},
+	} {
+		buf := &hcCompressBuffer{data: make([]byte, tc.capacity)}
+		if got := canRetainCompressBuffer(buf); got != tc.want {
+			t.Fatalf("capacity %d: canRetainCompressBuffer = %t, want %t", tc.capacity, got, tc.want)
+		}
+	}
+
+	oversized := &hcCompressBuffer{data: make([]byte, hcMaxRetainedCompressBuffer+1)}
+	releaseCompressBuffer(oversized)
+	if oversized.data != nil {
+		t.Fatal("oversized buffer still references its backing array")
+	}
+}
+
 func TestCompress999GoldenOutput(t *testing.T) {
 	inputs := []struct {
 		name string
