@@ -34,6 +34,9 @@ From an io.Reader (e.g. stream with known decompressed size):
 	out, err := lzo.DecompressFromReader(r, lzo.DefaultDecompressOptions(expectedLen))
 	out, err := lzo.DecompressFromReaderInto(r, dst, lzo.DefaultDecompressOptions(expectedLen))
 
+Reader APIs read the complete compressed stream before decoding.
+DecompressOptions.MaxInputSize bounds the number of compressed bytes read.
+
 # Compress
 
 Options may be nil (default level 1). Level 0 or 1 = fast LZO1X-1; 2–9 = LZO1X-999:
@@ -51,5 +54,8 @@ To retain LZO1X-999 state across calls without relying on a shared pool:
 
 	encoder := lzo.NewEncoder()
 	out, err := encoder.CompressInto(data, dst, &lzo.CompressOptions{Level: 9})
+
+Each Encoder retains one LZO1X-999 dictionary. It must not be copied after
+first use or used concurrently.
 */
 package lzo
