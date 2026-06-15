@@ -90,6 +90,53 @@ func TestCompress_DefaultAndExplicitLevels(t *testing.T) {
 	}
 }
 
+func TestFastMatchLenMatchesBytewise(t *testing.T) {
+	bytewise := func(in []byte, left, right int) int {
+		start := right
+		for right < len(in) && in[left] == in[right] {
+			left++
+			right++
+		}
+		return right - start
+	}
+
+	random := make([]byte, 1024)
+	for i := range random {
+		random[i] = byte((i*131 + i*i*17) >> 3)
+	}
+	for left := 0; left < 128; left++ {
+		for right := left + 1; right < len(random); right += 7 {
+			got := fastMatchLen(random, left, right)
+			want := bytewise(random, left, right)
+			if got != want {
+				t.Fatalf("random left=%d right=%d: got %d, want %d", left, right, got, want)
+			}
+		}
+	}
+
+	for _, length := range []int{0, 1, 7, 8, 9, 15, 16, 31, 32, 63, 64, 127, 255} {
+		data := make([]byte, 1024)
+		for i := range data {
+			data[i] = byte(i*29 + 7)
+		}
+		copy(data[512:512+length], data[16:16+length])
+		if 512+length < len(data) {
+			data[512+length] ^= 1
+		}
+
+		got := fastMatchLen(data, 16, 512)
+		want := bytewise(data, 16, 512)
+		if got != want {
+			t.Fatalf("long match length=%d: got %d, want %d", length, got, want)
+		}
+	}
+
+	overlap := bytes.Repeat([]byte{0x5a}, 1024)
+	if got, want := fastMatchLen(overlap, 0, 1), len(overlap)-1; got != want {
+		t.Fatalf("overlap: got %d, want %d", got, want)
+	}
+}
+
 func TestCompress_LevelClamping(t *testing.T) {
 	data := bytes.Repeat([]byte("0123456789abcdef"), 4096)
 
