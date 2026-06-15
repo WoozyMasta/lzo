@@ -2,6 +2,7 @@ package lzo
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"testing"
@@ -259,6 +260,39 @@ func TestMaxCompressedSize(t *testing.T) {
 	}
 	if got := MaxCompressedSize(maxInt); got != -1 {
 		t.Fatalf("MaxCompressedSize(maxInt) = %d, want -1", got)
+	}
+}
+
+func TestCompress999GoldenOutput(t *testing.T) {
+	inputs := []struct {
+		name string
+		data []byte
+	}{
+		{name: "mixed-256k", data: benchmarkMixedBytes(256 << 10)},
+		{name: "random-256k", data: benchmarkRandomBytes(256 << 10)},
+	}
+	expected := map[string]string{
+		"mixed-256k/level-2":  "b4b33f0c39190779da58b8eb5da040877e714f779f3d9dd829246c357e546056",
+		"mixed-256k/level-5":  "502f8b26682a6c0ddf8f2a73b338c19a768d8f768e26f93f06f89d72d6597543",
+		"mixed-256k/level-9":  "502f8b26682a6c0ddf8f2a73b338c19a768d8f768e26f93f06f89d72d6597543",
+		"random-256k/level-2": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
+		"random-256k/level-5": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
+		"random-256k/level-9": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
+	}
+
+	for _, input := range inputs {
+		for _, level := range []int{2, 5, 9} {
+			name := fmt.Sprintf("%s/level-%d", input.name, level)
+			compressed, err := Compress(input.data, &CompressOptions{Level: level})
+			if err != nil {
+				t.Fatalf("%s: Compress failed: %v", name, err)
+			}
+
+			got := fmt.Sprintf("%x", sha256.Sum256(compressed))
+			if got != expected[name] {
+				t.Errorf("%s: compressed SHA-256 = %s, want %s", name, got, expected[name])
+			}
+		}
 	}
 }
 

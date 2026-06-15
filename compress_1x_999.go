@@ -100,6 +100,12 @@ type hcState struct {
 	bufSize int // bufSize is how many parse positions are still available in this step.
 }
 
+// hcBestOffsets stores alternative offsets and tracks which length slots are valid.
+type hcBestOffsets struct {
+	offsets [hcBestTableSize]int
+	touched uint64
+}
+
 // Compress1X999Level compresses in with LZO1X-999 at the given level (1–9).
 // Higher levels increase search depth and improve ratio at the cost of speed.
 func Compress1X999Level(in []byte, level int) ([]byte, error) {
@@ -149,12 +155,12 @@ func compress999NoAlloc(in []byte, out []byte, dict *hcCompressorDict, level int
 	literalLen := 0
 	// bestOffsetByLen caches alternative offsets discovered during search so
 	// we can later shorten a chosen match if that yields a cheaper opcode.
-	bestOffsetByLen := [hcBestTableSize]int{}
+	bestOffsets := hcBestOffsets{}
 	literalStart := state.inPos
 	searchDepth := hcSearchDepthByLevel[level]
 
 	// Prime the parser with the first candidate match.
-	matchOff, matchLen := dict.advance(&state, 0, &bestOffsetByLen, false, searchDepth)
+	matchOff, matchLen := dict.advance(&state, 0, &bestOffsets, false, searchDepth)
 
 	// Main parse loop: either extend a literal run or emit one back-reference token.
 	for state.bufSize > 0 {
@@ -176,13 +182,13 @@ func compress999NoAlloc(in []byte, out []byte, dict *hcCompressorDict, level int
 		if matchLen == 0 {
 			// No encodable match yet: grow literal run and try again at next position.
 			literalLen++
-			matchOff, matchLen = dict.advance(&state, 0, &bestOffsetByLen, false, searchDepth)
+			matchOff, matchLen = dict.advance(&state, 0, &bestOffsets, false, searchDepth)
 			continue
 		}
 
 		// Opcode cost is not monotonic in match length: sometimes a slightly
 		// shorter match with smaller offset encodes to fewer bytes overall.
-		findBetterMatch(bestOffsetByLen[:], &matchLen, &matchOff)
+		findBetterMatch(bestOffsets.offsets[:], &matchLen, &matchOff)
 
 		if err := encodeLiteralRun(out, &outPos, in, literalStart, literalLen); err != nil {
 			return 0, err
@@ -194,7 +200,7 @@ func compress999NoAlloc(in []byte, out []byte, dict *hcCompressorDict, level int
 
 		prevLen := matchLen
 		literalLen = 0
-		matchOff, matchLen = dict.advance(&state, prevLen, &bestOffsetByLen, true, searchDepth)
+		matchOff, matchLen = dict.advance(&state, prevLen, &bestOffsets, true, searchDepth)
 	}
 
 	if err := encodeLiteralRun(out, &outPos, in, literalStart, literalLen); err != nil {
@@ -281,7 +287,7 @@ func (d *hcCompressorDict) init(state *hcState) {
 }
 
 // advance updates the dictionary window and returns the best current match.
-func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsetByLen *[hcBestTableSize]int, skip bool, searchDepth int) (int, int) {
+func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsets *hcBestOffsets, skip bool, searchDepth int) (int, int) {
 	// After emitting a match we still need to insert skipped bytes into both hash tables,
 	// but we do not need to search from each of those intermediate positions.
 	if skip && prevLen > 1 {
@@ -296,6 +302,7 @@ func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsetByLen 
 	matchOff := 0
 	matchPos := 0
 	bestPosByLen := [hcBestTableSize]int{}
+	var touched uint64
 
 	head, count := d.match3.advance(state, &d.buffer, searchDepth)
 	if head == hcNilNode {
@@ -313,7 +320,10 @@ func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsetByLen 
 		// Search 3-byte hash chain candidates from newest to older positions.
 		if state.windSize >= 3 {
 			// Cheap 2-byte seed gives a baseline candidate before chain walk.
-			d.match2.search(state, &matchPos, &matchLen, &bestPosByLen, &d.buffer)
+			if d.match2.search(state, &matchPos, &matchLen, &d.buffer) {
+				bestPosByLen[2] = matchPos + 1
+				touched |= 1 << 2
+			}
 
 			node := int(head)
 			scanPos := state.windB
@@ -348,8 +358,12 @@ func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsetByLen 
 
 				if matched >= 2 {
 					// Remember the first position found for each length.
-					if matched < hcBestTableSize && bestPosByLen[matched] == 0 {
-						bestPosByLen[matched] = node + 1
+					if matched < hcBestTableSize {
+						mask := uint64(1) << matched
+						if touched&mask == 0 {
+							bestPosByLen[matched] = node + 1
+							touched |= mask
+						}
 					}
 
 					if matched > matchLen {
@@ -380,13 +394,14 @@ func (d *hcCompressorDict) advance(state *hcState, prevLen int, bestOffsetByLen 
 		}
 
 		d.match3.bestLen[state.windB] = uint16(matchLen) //nolint:gosec // G115: bounded by window size
-		for i := 2; i < hcBestTableSize; i++ {
-			if bestPosByLen[i] > 0 {
-				bestOffsetByLen[i] = state.posToOffset(bestPosByLen[i] - 1)
-			} else {
-				bestOffsetByLen[i] = 0
-			}
+		for stale := bestOffsets.touched &^ touched; stale != 0; stale &= stale - 1 {
+			bestOffsets.offsets[bits.TrailingZeros64(stale)] = 0
 		}
+		for current := touched; current != 0; current &= current - 1 {
+			length := bits.TrailingZeros64(current)
+			bestOffsets.offsets[length] = state.posToOffset(bestPosByLen[length] - 1)
+		}
+		bestOffsets.touched = touched
 	}
 
 	d.resetNextInputEntry(state)
@@ -524,7 +539,7 @@ func (m *hcMatch2Table) add(pos int, buffer *[hcBufferGuardSize]byte) {
 
 // search tries to find a short 2-byte match at the current position.
 // This is a low-cost seed; longer matches are still decided by match3 chain walk.
-func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, bestPosByLen *[hcBestTableSize]int, buffer *[hcBufferGuardSize]byte) bool {
+func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, buffer *[hcBufferGuardSize]byte) bool {
 	key := match2Key(buffer, state.windB)
 
 	head := m.head[key]
@@ -534,9 +549,6 @@ func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, bes
 
 	pos := int(head) - 1
 
-	if bestPosByLen[2] == 0 {
-		bestPosByLen[2] = pos + 1
-	}
 	if *matchLen < 2 {
 		*matchLen = 2
 		*matchPos = pos
