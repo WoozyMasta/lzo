@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -13,11 +14,38 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## Unreleased
+
+### Added
+
+* Added `CompressInto`, `AppendCompress`, and `MaxCompressedSize`
+  for caller-managed compression buffers.
+* Added `DecompressFromReaderInto`
+  for decoding reader input into caller-managed output memory.
+* Added reusable `Encoder` state for deterministic allocation-free
+  LZO1X-999 compression after initialization.
+
+### Changed
+
+* Improved LZO1X-1 compression throughput
+  by approximately 44–80% on benchmarked compressible inputs.
+* Improved LZO1X-999 compression throughput
+  by approximately 25–33% on benchmarked mixed and incompressible inputs.
+* Improved decompression throughput
+  by approximately 15–17% on benchmarked token-heavy streams.
+* Limited temporary memory retained after large LZO1X-999 compression calls.
+
+### Fixed
+
+* Enforced `DecompressFromReader` input limits while reading,
+  preventing reads and allocations beyond `MaxInputSize`.
+
 ## [0.2.0][] - 2026-02-17
 
 ### Added
 
-* Added `DecompressInto` and `DecompressNInto` for zero-allocation decode into caller-provided buffers.
+* Added `DecompressInto` and `DecompressNInto`
+  for zero-allocation decode into caller-provided buffers.
 
 ### Changed
 
