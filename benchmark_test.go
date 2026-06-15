@@ -3,6 +3,7 @@ package lzo
 import (
 	"bytes"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -159,6 +160,106 @@ func BenchmarkCompress999Core(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkCompress999StateReuse(b *testing.B) {
+	input := benchmarkMixedBytes(256 << 10)
+	outSize := MaxCompressedSize(len(input))
+
+	b.Run("pooled", func(b *testing.B) {
+		out := make([]byte, outSize)
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			if _, err := CompressInto(input, out, opts); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("explicit", func(b *testing.B) {
+		out := make([]byte, outSize)
+		encoder := NewEncoder()
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			if _, err := encoder.CompressInto(input, out, opts); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("pooled-after-GC", func(b *testing.B) {
+		out := make([]byte, outSize)
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			runtime.GC()
+			runtime.GC()
+			b.StartTimer()
+
+			if _, err := CompressInto(input, out, opts); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("explicit-after-GC", func(b *testing.B) {
+		out := make([]byte, outSize)
+		encoder := NewEncoder()
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			runtime.GC()
+			runtime.GC()
+			b.StartTimer()
+
+			if _, err := encoder.CompressInto(input, out, opts); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("pooled-parallel", func(b *testing.B) {
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		b.RunParallel(func(pb *testing.PB) {
+			out := make([]byte, outSize)
+			for pb.Next() {
+				if _, err := CompressInto(input, out, opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
+
+	b.Run("explicit-parallel", func(b *testing.B) {
+		opts := &CompressOptions{Level: 9}
+		b.ReportAllocs()
+		b.SetBytes(int64(len(input)))
+		b.RunParallel(func(pb *testing.PB) {
+			out := make([]byte, outSize)
+			encoder := NewEncoder()
+			for pb.Next() {
+				if _, err := encoder.CompressInto(input, out, opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
 }
 
 func BenchmarkCompress999BufferPool(b *testing.B) {

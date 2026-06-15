@@ -296,6 +296,48 @@ func TestAppendCompressGrowsDestination(t *testing.T) {
 	}
 }
 
+func TestEncoderMatchesPackageCompression(t *testing.T) {
+	var encoder Encoder
+
+	for _, in := range testInputSet() {
+		for _, level := range []int{0, 1, 2, 5, 9, 15} {
+			opts := &CompressOptions{Level: level}
+			want, err := Compress(in.data, opts)
+			if err != nil {
+				t.Fatalf("Compress failed for %s level %d: %v", in.name, level, err)
+			}
+
+			dst := make([]byte, MaxCompressedSize(len(in.data)))
+			got, err := encoder.CompressInto(in.data, dst, opts)
+			if err != nil {
+				t.Fatalf("Encoder.CompressInto failed for %s level %d: %v", in.name, level, err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("compressed output mismatch for %s level %d", in.name, level)
+			}
+
+			prefix := []byte("prefix:")
+			appended, err := encoder.AppendCompress(append([]byte(nil), prefix...), in.data, opts)
+			if err != nil {
+				t.Fatalf("Encoder.AppendCompress failed for %s level %d: %v", in.name, level, err)
+			}
+			if !bytes.Equal(appended[:len(prefix)], prefix) || !bytes.Equal(appended[len(prefix):], want) {
+				t.Fatalf("appended output mismatch for %s level %d", in.name, level)
+			}
+		}
+	}
+}
+
+func TestEncoderCompressInto_BufferTooSmall(t *testing.T) {
+	encoder := NewEncoder()
+	data := bytes.Repeat([]byte("encoder-buffer"), 128)
+
+	_, err := encoder.CompressInto(data, make([]byte, MaxCompressedSize(len(data))-1), &CompressOptions{Level: 9})
+	if !errors.Is(err, ErrCompressBufferTooSmall) {
+		t.Fatalf("expected ErrCompressBufferTooSmall, got %v", err)
+	}
+}
+
 func TestMaxCompressedSize(t *testing.T) {
 	for _, size := range []int{0, 1, 16, 1 << 20} {
 		if got := MaxCompressedSize(size); got < size+3 {

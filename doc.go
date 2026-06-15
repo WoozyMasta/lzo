@@ -46,5 +46,10 @@ To reuse caller-managed output memory:
 	dst := make([]byte, lzo.MaxCompressedSize(len(data)))
 	out, err := lzo.CompressInto(data, dst, nil)
 	out, err := lzo.AppendCompress(dst[:0], data, nil)
+
+To retain LZO1X-999 state across calls without relying on a shared pool:
+
+	encoder := lzo.NewEncoder()
+	out, err := encoder.CompressInto(data, dst, &lzo.CompressOptions{Level: 9})
 */
 package lzo
