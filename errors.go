@@ -26,10 +26,13 @@ var (
 	// ErrOptionsRequired is returned when Decompress is called with nil options (OutLen is required).
 	ErrOptionsRequired = errors.New("options required: OutLen must be set")
 
-	// ErrInputTooLarge is returned when DecompressFromReader reads more than MaxInputSize bytes.
+	// ErrInputTooLarge is returned when a reader API reads more than MaxInputSize bytes.
 	ErrInputTooLarge = errors.New("input exceeds MaxInputSize")
 
 	// ErrCompressInternal is returned when the compressor hits an internal invariant violation
 	// (e.g. invalid match state, invalid window state). Callers can use errors.Is(err, lzo.ErrCompressInternal).
 	ErrCompressInternal = errors.New("internal compressor error")
+
+	// ErrCompressBufferTooSmall is returned when CompressInto dst is smaller than MaxCompressedSize.
+	ErrCompressBufferTooSmall = errors.New("compression output buffer too small")
 )

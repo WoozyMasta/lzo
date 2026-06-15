@@ -74,23 +74,64 @@ func DecompressN(src []byte, opts *DecompressOptions) ([]byte, int, error) {
 	return DecompressNInto(src, dst)
 }
 
-// DecompressFromReader reads the full stream then calls Decompress. No decoding logic of its own.
-// If opts.MaxInputSize > 0 and more bytes are read, returns ErrInputTooLarge.
+// DecompressFromReader reads the stream then calls Decompress.
+// No decoding logic of its own.
+// If opts.MaxInputSize > 0, reads at most MaxInputSize+1 bytes
+// and returns ErrInputTooLarge when the input exceeds the limit.
 func DecompressFromReader(r io.Reader, opts *DecompressOptions) ([]byte, error) {
 	if opts == nil {
 		return nil, ErrOptionsRequired
 	}
 
-	src, err := io.ReadAll(r)
+	src, err := readCompressedStream(r, opts.MaxInputSize)
 	if err != nil {
 		return nil, err
 	}
 
-	if opts.MaxInputSize > 0 && len(src) > opts.MaxInputSize {
+	return Decompress(src, opts)
+}
+
+// DecompressFromReaderInto reads the stream then decompresses it into caller-provided dst.
+// opts.OutLen limits the writable destination and opts.MaxInputSize limits input reads.
+func DecompressFromReaderInto(r io.Reader, dst []byte, opts *DecompressOptions) ([]byte, error) {
+	if opts == nil || opts.OutLen < 0 {
+		return nil, ErrOptionsRequired
+	}
+	if len(dst) < opts.OutLen {
+		return nil, ErrOutputOverrun
+	}
+
+	src, err := readCompressedStream(r, opts.MaxInputSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecompressInto(src, dst[:opts.OutLen])
+}
+
+// readCompressedStream reads a complete compressed stream with an optional size limit.
+func readCompressedStream(r io.Reader, maxInputSize int) ([]byte, error) {
+	var src []byte
+	var err error
+	if maxInputSize > 0 {
+		limit := int64(maxInputSize)
+		if limit < 1<<63-1 {
+			limit++
+		}
+		limited := io.LimitedReader{R: r, N: limit}
+		src, err = io.ReadAll(&limited)
+	} else {
+		src, err = io.ReadAll(r)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if maxInputSize > 0 && len(src) > maxInputSize {
 		return nil, ErrInputTooLarge
 	}
 
-	return Decompress(src, opts)
+	return src, nil
 }
 
 // makeDecompressBuffer validates options and allocates destination buffer for decode.
@@ -280,10 +321,15 @@ func decompressCore(src, dst []byte) (outWritten, inConsumed int, err error) {
 			}
 		}
 
-		if err := copyBackRef(dst, outPos, matchDist, matchLen); err != nil {
-			return 0, 0, err
+		matchPos := outPos - matchDist
+		if matchPos < 0 {
+			return 0, 0, ErrLookBehindUnderrun
+		}
+		if outPos+matchLen > len(dst) {
+			return 0, 0, ErrOutputOverrun
 		}
 
+		copyBackRefUnchecked(dst, outPos, matchPos, matchDist, matchLen)
 		outPos += matchLen
 		if nextState > 0 {
 			if err := copyLiteralRun(src, &inPos, dst, &outPos, nextState); err != nil {

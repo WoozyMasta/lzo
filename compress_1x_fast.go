@@ -4,8 +4,13 @@
 
 package lzo
 
+import (
+	"encoding/binary"
+	"math/bits"
+)
+
 // compress1xFastCore performs the fast LZO1X-1 parse and returns pending literal tail.
-func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
+func compress1xFastCore(out, in []byte) ([]byte, int) {
 	inputLen := len(in)
 	inputLimit := inputLen - maxLenM2 - 5
 	dict := make([]int32, 1<<dictBits)
@@ -81,10 +86,7 @@ func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
 				} else {
 					// Slow path for long matches beyond the initial short extension window.
 					m := matchPos + maxLenM2 + 1
-					for inputPos < inputLen && in[m] == in[inputPos] {
-						m++
-						inputPos++
-					}
+					inputPos += fastMatchLen(in, m, inputPos)
 
 					matchLen := inputPos - literalStart
 					if matchOffset <= maxOffsetM3 {
@@ -136,20 +138,42 @@ func compress1xFastCore(in []byte) (out []byte, literalTailSize int) {
 		}
 	}
 
-	literalTailSize = inputLen - literalStart
-	return
+	literalTailSize := inputLen - literalStart
+	return out, literalTailSize
+}
+
+// fastMatchLen returns the number of equal bytes starting at left and right.
+// Callers guarantee 0 <= left < right < len(in).
+func fastMatchLen(in []byte, left, right int) int {
+	start := right
+
+	for right+8 <= len(in) {
+		diff := binary.LittleEndian.Uint64(in[left:left+8]) ^ binary.LittleEndian.Uint64(in[right:right+8])
+		if diff != 0 {
+			return right - start + bits.TrailingZeros64(diff)/8
+		}
+
+		left += 8
+		right += 8
+	}
+
+	for right < len(in) && in[left] == in[right] {
+		left++
+		right++
+	}
+
+	return right - start
 }
 
 // compress1xFast is the fast LZO1X-1 compressor (level 0 or 1).
-func compress1xFast(in []byte) []byte {
+func compress1xFast(out, in []byte) []byte {
 	var literalTailSize int
 	inLen := len(in)
 
-	var out []byte
 	if inLen <= maxLenM2+5 {
 		literalTailSize = inLen
 	} else {
-		out, literalTailSize = compress1xFastCore(in)
+		out, literalTailSize = compress1xFastCore(out, in)
 	}
 
 	if literalTailSize > 0 {

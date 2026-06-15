@@ -5,12 +5,12 @@
 package lzo
 
 // DecompressOptions configures decompression.
-// OutLen is required (expected decompressed size); MaxInputSize limits reads when using DecompressFromReader.
+// OutLen is required (expected decompressed size); MaxInputSize limits reads when using reader APIs.
 type DecompressOptions struct {
 	// OutLen is the expected decompressed size (required for buffer allocation and safety).
 	OutLen int
 
-	// MaxInputSize limits how many bytes DecompressFromReader may read (0 = no limit).
+	// MaxInputSize limits how many bytes reader APIs may read (0 = no limit).
 	MaxInputSize int
 }
 

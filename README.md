@@ -32,6 +32,34 @@ compressed, err := lzo.Compress1X999(data)       // level 9
 compressed, err := lzo.Compress1X999Level(data, 5) // level 5
 ```
 
+Reuse caller-owned output memory:
+
+```go
+dst := make([]byte, lzo.MaxCompressedSize(len(data)))
+compressed, err := lzo.CompressInto(data, dst, nil)
+
+// Append to an existing slice and reuse its capacity when possible.
+compressed, err = lzo.AppendCompress(dst[:0], data, nil)
+```
+
+`CompressInto` requires `len(dst) >= MaxCompressedSize(len(data))`.
+The source and destination slices must not overlap.
+
+For deterministic LZO1X-999 state reuse without relying on a shared pool:
+
+```go
+encoder := lzo.NewEncoder()
+compressed, err := encoder.CompressInto(
+    data,
+    dst,
+    &lzo.CompressOptions{Level: 9},
+)
+```
+
+Each `Encoder` retains an LZO1X-999 dictionary.
+It must not be copied after first use or used concurrently;
+use one encoder per goroutine when needed.
+
 ### Decompress
 
 `OutLen` (expected decompressed size)
@@ -68,6 +96,13 @@ From an `io.Reader` (e.g. stream with known decompressed size):
 
 ```go
 out, err := lzo.DecompressFromReader(r, lzo.DefaultDecompressOptions(expectedLen))
+
+dst := make([]byte, expectedLen)
+out, err = lzo.DecompressFromReaderInto(
+    r,
+    dst,
+    lzo.DefaultDecompressOptions(expectedLen),
+)
 ```
 
 Optional limit on input size:
@@ -77,6 +112,10 @@ opts := lzo.DefaultDecompressOptions(expectedLen)
 opts.MaxInputSize = 1 << 20
 out, err := lzo.DecompressFromReader(r, opts)
 ```
+
+Reader APIs read the complete compressed stream before decoding.
+`MaxInputSize` bounds the number of compressed bytes read and returns
+`ErrInputTooLarge` when the limit is exceeded.
 
 ## Compression levels
 

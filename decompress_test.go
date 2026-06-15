@@ -7,6 +7,31 @@ import (
 	"testing"
 )
 
+type countingReader struct {
+	n int
+}
+
+func copyBackRef(dst []byte, outputPos, dist, length int) error {
+	matchPos := outputPos - dist
+	if matchPos < 0 {
+		return ErrLookBehindUnderrun
+	}
+	if outputPos+length > len(dst) {
+		return ErrOutputOverrun
+	}
+
+	copyBackRefUnchecked(dst, outputPos, matchPos, dist, length)
+	return nil
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(i)
+	}
+	r.n += len(p)
+	return len(p), nil
+}
+
 func TestDecompress_OptionsRequired(t *testing.T) {
 	_, err := Decompress([]byte{0x11, 0x00}, nil)
 	if !errors.Is(err, ErrOptionsRequired) {
@@ -74,6 +99,94 @@ func TestDecompressFromReader_MaxInputSize(t *testing.T) {
 	_, err = DecompressFromReader(bytes.NewReader(cmp), opts)
 	if !errors.Is(err, ErrInputTooLarge) {
 		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+}
+
+func TestDecompressFromReader_MaxInputSizeBoundsRead(t *testing.T) {
+	const maxInputSize = 1024
+	reader := &countingReader{}
+	opts := DefaultDecompressOptions(0)
+	opts.MaxInputSize = maxInputSize
+
+	_, err := DecompressFromReader(reader, opts)
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+	if reader.n != maxInputSize+1 {
+		t.Fatalf("read %d bytes, want %d", reader.n, maxInputSize+1)
+	}
+}
+
+func TestDecompressFromReader_MaxInputSizeAllowsExactLimit(t *testing.T) {
+	data := bytes.Repeat([]byte("exact-limit"), 100)
+	cmp, err := Compress(data, nil)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	opts := DefaultDecompressOptions(len(data))
+	opts.MaxInputSize = len(cmp)
+	out, err := DecompressFromReader(bytes.NewReader(cmp), opts)
+	if err != nil {
+		t.Fatalf("DecompressFromReader failed: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
+	}
+}
+
+func TestDecompressFromReaderInto_ReusesCallerBuffer(t *testing.T) {
+	data := bytes.Repeat([]byte("reader-into"), 1024)
+	cmp, err := Compress(data, &CompressOptions{Level: 5})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	dst := make([]byte, len(data)+32)
+	opts := DefaultDecompressOptions(len(data))
+	opts.MaxInputSize = len(cmp)
+	out, err := DecompressFromReaderInto(bytes.NewReader(cmp), dst, opts)
+	if err != nil {
+		t.Fatalf("DecompressFromReaderInto failed: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatal("decoded output mismatch")
+	}
+	if len(out) > 0 && &out[0] != &dst[0] {
+		t.Fatal("DecompressFromReaderInto should return a slice over provided destination buffer")
+	}
+}
+
+func TestDecompressFromReaderInto_ValidatesDestinationBeforeRead(t *testing.T) {
+	reader := &countingReader{}
+	_, err := DecompressFromReaderInto(reader, make([]byte, 7), DefaultDecompressOptions(8))
+	if !errors.Is(err, ErrOutputOverrun) {
+		t.Fatalf("expected ErrOutputOverrun, got %v", err)
+	}
+	if reader.n != 0 {
+		t.Fatalf("read %d bytes before destination validation", reader.n)
+	}
+}
+
+func TestDecompressFromReaderInto_MaxInputSizeBoundsRead(t *testing.T) {
+	const maxInputSize = 1024
+	reader := &countingReader{}
+	opts := DefaultDecompressOptions(0)
+	opts.MaxInputSize = maxInputSize
+
+	_, err := DecompressFromReaderInto(reader, nil, opts)
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("expected ErrInputTooLarge, got %v", err)
+	}
+	if reader.n != maxInputSize+1 {
+		t.Fatalf("read %d bytes, want %d", reader.n, maxInputSize+1)
+	}
+}
+
+func TestDecompressFromReaderInto_OptionsRequired(t *testing.T) {
+	_, err := DecompressFromReaderInto(strings.NewReader("\x00"), nil, nil)
+	if !errors.Is(err, ErrOptionsRequired) {
+		t.Fatalf("expected ErrOptionsRequired, got %v", err)
 	}
 }
 
@@ -209,5 +322,42 @@ func TestCopyBackRef(t *testing.T) {
 		if !errors.Is(err, ErrOutputOverrun) {
 			t.Fatalf("expected ErrOutputOverrun, got %v", err)
 		}
+	})
+}
+
+func TestCopyBackRefMatchesBytewiseReference(t *testing.T) {
+	for outputPos := 1; outputPos <= 64; outputPos++ {
+		for dist := 1; dist <= outputPos; dist++ {
+			for length := 1; length <= 128; length++ {
+				got := make([]byte, outputPos+length)
+				for i := range got[:outputPos] {
+					got[i] = byte(i*31 + 7)
+				}
+				want := append([]byte(nil), got...)
+
+				for i := 0; i < length; i++ {
+					want[outputPos+i] = want[outputPos-dist+i]
+				}
+				if err := copyBackRef(got, outputPos, dist, length); err != nil {
+					t.Fatalf("outputPos=%d dist=%d length=%d: %v", outputPos, dist, length, err)
+				}
+				if !bytes.Equal(got, want) {
+					t.Fatalf("outputPos=%d dist=%d length=%d: output mismatch", outputPos, dist, length)
+				}
+			}
+		}
+	}
+}
+
+func FuzzDecompressIntoMalformedInput(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{markerM4 | 1, 0, 0})
+	f.Add([]byte{0x12, 0x00, 0x20, 0x00, 0xdf, 0x00, 0x00, 0x11, 0x00, 0x00})
+
+	f.Fuzz(func(t *testing.T, src []byte) {
+		if len(src) > 1<<16 {
+			src = src[:1<<16]
+		}
+		_, _ = DecompressInto(src, make([]byte, 1<<16))
 	})
 }
