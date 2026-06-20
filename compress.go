@@ -10,8 +10,8 @@ import (
 )
 
 // Encoder owns reusable LZO1X-999 compression state.
-// The zero value is ready to use. An Encoder must not be copied after first use
-// or used concurrently.
+// The zero value is ready to use.
+// An Encoder must not be copied after first use or used concurrently.
 type Encoder struct {
 	dict *hcCompressorDict
 }

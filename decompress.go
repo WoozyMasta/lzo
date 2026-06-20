@@ -378,6 +378,22 @@ func readZeroExtendedChunks(src []byte, inPos *int) (int, error) {
 	return count, nil
 }
 
+// copyBackRefUnchecked expands a back-reference after bounds have been validated.
+// If dist < length, newly written bytes become source for the rest of the match.
+func copyBackRefUnchecked(dst []byte, outputPos, matchPos, dist, length int) {
+	if dist >= length {
+		copy(dst[outputPos:outputPos+length], dst[matchPos:matchPos+length])
+		return
+	}
+
+	copy(dst[outputPos:outputPos+dist], dst[matchPos:outputPos])
+	copied := dist
+	for copied < length {
+		n := copy(dst[outputPos+copied:outputPos+length], dst[outputPos:outputPos+copied])
+		copied += n
+	}
+}
+
 // copyLiteralRun copies `n` bytes from src[*inPos:] to dst[*outPos:] and advances both pointers.
 func copyLiteralRun(src []byte, inPos *int, dst []byte, outPos *int, n int) error {
 	if n == 0 {
