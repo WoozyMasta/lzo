@@ -153,3 +153,10 @@ func (e *Encoder) appendCompress(dst, src []byte, opts *CompressOptions) ([]byte
 	}
 	return dst[:outLen], nil
 }
+
+// opcodeByte packs an opcode fragment to one byte as required by LZO bit layout.
+// Callers pass values whose low 8 bits are the serialized representation.
+func opcodeByte(v int) byte {
+	// #nosec G115 -- LZO opcodes intentionally encode only low 8 bits.
+	return byte(v & 0xff)
+}
