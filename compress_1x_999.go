@@ -560,6 +560,11 @@ func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, buf
 	}
 
 	pos := int(head) - 1
+	// The direct table can retain a position after its ring slot is reused for another key.
+	// Revalidate the bytes before accepting the candidate.
+	if buffer[pos] != buffer[state.windB] || buffer[pos+1] != buffer[state.windB+1] {
+		return false
+	}
 
 	if *matchLen < 2 {
 		*matchLen = 2
