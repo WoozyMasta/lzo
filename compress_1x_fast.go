@@ -5,8 +5,8 @@
 package lzo
 
 import (
-	"encoding/binary"
 	"math/bits"
+	"unsafe"
 )
 
 // Dictionary hash parameters used by the fast compressor.
@@ -153,18 +153,21 @@ func compress1xFastCore(out, in []byte) ([]byte, int) {
 // Callers guarantee 0 <= left < right < len(in).
 func fastMatchLen(in []byte, left, right int) int {
 	start := right
+	n := len(in)
 
-	for right+8 <= len(in) {
-		diff := binary.LittleEndian.Uint64(in[left:left+8]) ^ binary.LittleEndian.Uint64(in[right:right+8])
+	for left+8 <= n && right+8 <= n {
+		lw := *(*uint64)(unsafe.Pointer(&in[left]))
+		rw := *(*uint64)(unsafe.Pointer(&in[right]))
+		diff := lw ^ rw
 		if diff != 0 {
-			return right - start + bits.TrailingZeros64(diff)/8
+			return right - start + bits.TrailingZeros64(diff)>>3
 		}
 
 		left += 8
 		right += 8
 	}
 
-	for right < len(in) && in[left] == in[right] {
+	for right < n && in[left] == in[right] {
 		left++
 		right++
 	}
