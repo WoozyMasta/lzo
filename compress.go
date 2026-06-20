@@ -4,9 +4,10 @@
 
 package lzo
 
-import "slices"
-
-const maxInt = int(^uint(0) >> 1)
+import (
+	"math"
+	"slices"
+)
 
 // Encoder owns reusable LZO1X-999 compression state.
 // The zero value is ready to use. An Encoder must not be copied after first use
@@ -106,7 +107,7 @@ func MaxCompressedSize(srcLen int) int {
 	}
 
 	size := srcLen + srcLen/16
-	if size < srcLen || size > maxInt-67 {
+	if size < srcLen || size > math.MaxInt-67 {
 		return -1
 	}
 	return size + 67

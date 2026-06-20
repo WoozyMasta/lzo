@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -347,8 +348,8 @@ func TestMaxCompressedSize(t *testing.T) {
 	if got := MaxCompressedSize(-1); got != -1 {
 		t.Fatalf("MaxCompressedSize(-1) = %d, want -1", got)
 	}
-	if got := MaxCompressedSize(maxInt); got != -1 {
-		t.Fatalf("MaxCompressedSize(maxInt) = %d, want -1", got)
+	if got := MaxCompressedSize(math.MaxInt); got != -1 {
+		t.Fatalf("MaxCompressedSize(math.MaxInt) = %d, want -1", got)
 	}
 }
 

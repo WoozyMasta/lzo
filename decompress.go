@@ -4,17 +4,14 @@
 
 package lzo
 
-import "io"
-
-const (
-	// shortMatchBaseOffset is the base distance used by the short-match form
-	// selected when the parser is in state 4.
-	shortMatchBaseOffset = 0x0800
-
-	// maxZeroExtendedChunks limits zero-extension runs so malformed inputs cannot
-	// overflow run-length reconstruction math.
-	maxZeroExtendedChunks = int(^uint(0)/255) - 2
+import (
+	"io"
+	"math"
 )
+
+// maxZeroExtendedChunks limits zero-extension runs
+// so malformed inputs cannot overflow run-length reconstruction math.
+const maxZeroExtendedChunks = math.MaxInt/255 - 2
 
 // Decompress decompresses LZO1X data from src into a buffer of length opts.OutLen.
 // Returns ErrOptionsRequired if opts is nil; ErrEmptyInput if src is empty.

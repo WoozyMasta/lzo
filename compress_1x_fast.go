@@ -9,6 +9,13 @@ import (
 	"math/bits"
 )
 
+// Dictionary hash parameters used by the fast compressor.
+const (
+	dictBits = 14
+	dictMask = (1 << dictBits) - 1
+	dictHigh = (dictMask >> 1) + 1
+)
+
 // compress1xFastCore performs the fast LZO1X-1 parse and returns pending literal tail.
 func compress1xFastCore(out, in []byte) ([]byte, int) {
 	inputLen := len(in)
