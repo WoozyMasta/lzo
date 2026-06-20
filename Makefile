@@ -24,7 +24,7 @@ test-compat:
 	@helper=$$(mktemp); \
 	trap 'rm -f "$$helper"' EXIT; \
 	$(CC) -O2 -Wall -Wextra -Werror -o "$$helper" testdata/compat/native/lzo2_compat.c -llzo2; \
-	LZO2_HELPER="$$helper" $(GO) test -run '^TestLibLZO2Compatibility$$' -count=1 ./testdata/compat
+	LZO2_HELPER="$$helper" $(GO) test -v -run '^TestLibLZO2Compatibility$$' -count=1 ./testdata/compat
 
 test-compat-container:
 	docker build -f testdata/compat/Dockerfile -t lzo-compat-test .
