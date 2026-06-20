@@ -1,4 +1,5 @@
 GO          ?= go
+CC          ?= gcc
 LINTER      ?= golangci-lint
 ALIGNER     ?= betteralign
 BENCHSTAT   ?= benchstat
@@ -11,13 +12,23 @@ FUZZ_TIME   ?= 20s
 check: verify tidy fmt vet lint-fix align-fix test test-race fuzz
 ci: download tools-ci verify tidy-check fmt-check vet lint align test
 
-.PHONY: test test-race
+.PHONY: test test-race test-compat test-compat-container
 
 test:
 	$(GO) test ./...
 
 test-race:
 	$(GO) test -race ./...
+
+test-compat:
+	@helper=$$(mktemp); \
+	trap 'rm -f "$$helper"' EXIT; \
+	$(CC) -O2 -Wall -Wextra -Werror -o "$$helper" testdata/compat/native/lzo2_compat.c -llzo2; \
+	LZO2_HELPER="$$helper" $(GO) test -run '^TestLibLZO2Compatibility$$' -count=1 ./testdata/compat
+
+test-compat-container:
+	docker build -f testdata/compat/Dockerfile -t lzo-compat-test .
+	docker run --rm -t lzo-compat-test
 
 .PHONY: bench bench-fast bench-reset
 

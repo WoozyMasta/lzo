@@ -1,0 +1,7 @@
+*
+!go.mod
+!Makefile
+!*.go
+!testdata/corpus/*.txt
+!testdata/compat/*.go
+!testdata/compat/native/*.c

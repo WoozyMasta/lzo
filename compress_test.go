@@ -6,14 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func testInputSet() []struct {
+func testInputSet(t *testing.T) []struct {
 	name string
 	data []byte
 } {
-	return []struct {
+	t.Helper()
+
+	inputs := []struct {
 		name string
 		data []byte
 	}{
@@ -25,12 +29,34 @@ func testInputSet() []struct {
 		{name: "long-run", data: bytes.Repeat([]byte{0xFF}, 12000)},
 		{name: "byte-cycle", data: bytes.Repeat([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, 1200)},
 	}
+
+	entries, err := os.ReadDir(filepath.Join("testdata", "corpus"))
+	if err != nil {
+		t.Fatalf("ReadDir(testdata/corpus): %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".txt" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join("testdata", "corpus", entry.Name()))
+		if err != nil {
+			t.Fatalf("ReadFile(%q): %v", entry.Name(), err)
+		}
+		inputs = append(inputs, struct {
+			name string
+			data []byte
+		}{name: "corpus/" + entry.Name(), data: data})
+	}
+
+	return inputs
 }
 
 func TestCompressDecompress_RoundTripAcrossLevels(t *testing.T) {
 	levels := []int{-7, 0, 1, 2, 5, 9, 15}
 
-	for _, in := range testInputSet() {
+	for _, in := range testInputSet(t) {
 		for _, level := range levels {
 			name := fmt.Sprintf("%s/level-%d", in.name, level)
 			t.Run(name, func(t *testing.T) {
@@ -208,7 +234,7 @@ func TestCompress1X999Level_LevelClamping(t *testing.T) {
 }
 
 func TestCompressIntoMatchesCompress(t *testing.T) {
-	for _, in := range testInputSet() {
+	for _, in := range testInputSet(t) {
 		for _, level := range []int{-7, 0, 1, 2, 5, 9, 15} {
 			opts := &CompressOptions{Level: level}
 			want, err := Compress(in.data, opts)
@@ -300,7 +326,7 @@ func TestAppendCompressGrowsDestination(t *testing.T) {
 func TestEncoderMatchesPackageCompression(t *testing.T) {
 	var encoder Encoder
 
-	for _, in := range testInputSet() {
+	for _, in := range testInputSet(t) {
 		for _, level := range []int{0, 1, 2, 5, 9, 15} {
 			opts := &CompressOptions{Level: level}
 			want, err := Compress(in.data, opts)
@@ -387,9 +413,9 @@ func TestCompress999GoldenOutput(t *testing.T) {
 		"mixed-256k/level-2":  "b4b33f0c39190779da58b8eb5da040877e714f779f3d9dd829246c357e546056",
 		"mixed-256k/level-5":  "502f8b26682a6c0ddf8f2a73b338c19a768d8f768e26f93f06f89d72d6597543",
 		"mixed-256k/level-9":  "502f8b26682a6c0ddf8f2a73b338c19a768d8f768e26f93f06f89d72d6597543",
-		"random-256k/level-2": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
-		"random-256k/level-5": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
-		"random-256k/level-9": "e251fe8eccebd908f9682d0363391eaf89342d8350a06774ecc5d54b88517c81",
+		"random-256k/level-2": "15abd887273e4bd85b5a7314abfd66364adc4e37a93ecae566e1c98894b65645",
+		"random-256k/level-5": "15abd887273e4bd85b5a7314abfd66364adc4e37a93ecae566e1c98894b65645",
+		"random-256k/level-9": "15abd887273e4bd85b5a7314abfd66364adc4e37a93ecae566e1c98894b65645",
 	}
 
 	for _, input := range inputs {
@@ -406,6 +432,32 @@ func TestCompress999GoldenOutput(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestCompress999RoundTripAfterDictionaryWrap(t *testing.T) {
+	data := benchmarkRandomBytes(68551)
+	compressed, err := Compress(data, &CompressOptions{Level: 9})
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	decoded, err := Decompress(compressed, DefaultDecompressOptions(len(data)))
+	if err != nil {
+		t.Fatalf("Decompress failed: %v", err)
+	}
+	if !bytes.Equal(decoded, data) {
+		t.Fatalf("round-trip mismatch at byte %d", firstMismatchBytes(decoded, data))
+	}
+}
+
+func firstMismatchBytes(left, right []byte) int {
+	limit := min(len(left), len(right))
+	for i := 0; i < limit; i++ {
+		if left[i] != right[i] {
+			return i
+		}
+	}
+	return limit
 }
 
 func FuzzCompressDecompressRoundTrip(f *testing.F) {
