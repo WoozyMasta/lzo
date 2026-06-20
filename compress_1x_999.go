@@ -562,7 +562,8 @@ func (m *hcMatch2Table) search(state *hcState, matchPos *int, matchLen *int, buf
 	pos := int(head) - 1
 	// The direct table can retain a position after its ring slot is reused for another key.
 	// Revalidate the bytes before accepting the candidate.
-	if buffer[pos] != buffer[state.windB] || buffer[pos+1] != buffer[state.windB+1] {
+	// Single uint16 load is cheaper than two separate byte comparisons on this hot path.
+	if *(*uint16)(unsafe.Pointer(&buffer[pos])) != *(*uint16)(unsafe.Pointer(&buffer[state.windB])) {
 		return false
 	}
 
