@@ -7,6 +7,7 @@ package lzo
 import (
 	"io"
 	"math"
+	"unsafe"
 )
 
 // maxZeroExtendedChunks limits zero-extension runs
@@ -364,13 +365,22 @@ func readCompressedLE16(src []byte, inPos *int) (uint16, error) {
 }
 
 // readZeroExtendedChunks consumes consecutive zero bytes and returns their count.
+// Long zero runs (from long M3/M4 matches) are scanned 8 bytes at a time.
 func readZeroExtendedChunks(src []byte, inPos *int) (int, error) {
 	start := *inPos
-	for *inPos < len(src) && src[*inPos] == 0 {
-		*inPos++
+	i := start
+	for i+8 <= len(src) {
+		if *(*uint64)(unsafe.Pointer(&src[i])) != 0 {
+			break
+		}
+		i += 8
 	}
+	for i < len(src) && src[i] == 0 {
+		i++
+	}
+	*inPos = i
 
-	count := *inPos - start
+	count := i - start
 	if count > maxZeroExtendedChunks {
 		return 0, ErrInputOverrun
 	}
