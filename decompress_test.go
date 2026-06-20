@@ -51,6 +51,35 @@ func TestDecompress_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestDecompress_OutputCanBeShorterThanOutLen(t *testing.T) {
+	data := bytes.Repeat([]byte("short-output"), 32)
+	cmp, err := Compress(data, nil)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	out, err := Decompress(cmp, DefaultDecompressOptions(len(data)+256))
+	if err != nil {
+		t.Fatalf("Decompress failed: %v", err)
+	}
+	if !bytes.Equal(out, data) {
+		t.Fatalf("decoded output mismatch: got=%d want=%d", len(out), len(data))
+	}
+}
+
+func TestDecompress_CanonicalLZO1XStream(t *testing.T) {
+	// Canonical stream from the lzokay-rs documentation; expands to 512 zero bytes.
+	compressed := []byte{0x12, 0x00, 0x20, 0x00, 0xdf, 0x00, 0x00, 0x11, 0x00, 0x00}
+
+	out, err := Decompress(compressed, DefaultDecompressOptions(512))
+	if err != nil {
+		t.Fatalf("Decompress failed: %v", err)
+	}
+	if !bytes.Equal(out, make([]byte, 512)) {
+		t.Fatal("decoded output mismatch")
+	}
+}
+
 func TestDecompress_TruncatedInputAlwaysFails(t *testing.T) {
 	data := bytes.Repeat([]byte("0123456789abcdef"), 256)
 	cmp, err := Compress(data, &CompressOptions{Level: 9})
