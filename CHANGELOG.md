@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.3.1][] - 2026-06-21
+
+### Fixed
+
+* Fixed a stale compression match candidate after dictionary ring-slot reuse
+  that could produce invalid LZO1X-999 output on some inputs.
+
+[0.3.1]: https://github.com/WoozyMasta/lzo/compare/v0.3.0...v0.3.1
+
 ## [0.3.0][] - 2026-06-15
 
 ### Added
