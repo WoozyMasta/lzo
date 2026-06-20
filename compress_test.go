@@ -466,12 +466,33 @@ func FuzzCompressDecompressRoundTrip(f *testing.F) {
 	f.Add(bytes.Repeat([]byte{0x00}, 1024), uint8(9))
 	f.Add(bytes.Repeat([]byte("abc"), 500), uint8(7))
 
+	// Seeds large enough to cycle the 999-path ring window at least once
+	// (hcMaxDist = 49151). Ring-slot reuse bugs require input longer than the
+	// window to manifest, so these sizes are intentional.
+	ringOnce := make([]byte, hcMaxDist+4096)
+	for i := range ringOnce {
+		ringOnce[i] = byte(i*17 + 3)
+	}
+	f.Add(ringOnce, uint8(9))
+
+	ringTwice := make([]byte, hcMaxDist*2+1024)
+	for i := range ringTwice {
+		ringTwice[i] = byte(i * 251)
+	}
+	f.Add(ringTwice, uint8(5))
+
+	f.Add(bytes.Repeat([]byte{0x00}, hcMaxDist+1), uint8(9))
+	f.Add(bytes.Repeat([]byte("xy"), hcMaxDist/2+1), uint8(7))
+
 	f.Fuzz(func(t *testing.T, data []byte, level uint8) {
-		if len(data) > 1<<16 {
-			data = data[:1<<16]
+		// Cap at 3× the ring window so double ring-wrap is always reachable.
+		if len(data) > hcMaxDist*3 {
+			data = data[:hcMaxDist*3]
 		}
 
-		cmp, err := Compress(data, &CompressOptions{Level: int(level % 16)})
+		lvl := int(level % 10)
+
+		cmp, err := Compress(data, &CompressOptions{Level: lvl})
 		if err != nil {
 			t.Fatalf("Compress failed: %v", err)
 		}
@@ -486,12 +507,20 @@ func FuzzCompressDecompressRoundTrip(f *testing.F) {
 		}
 
 		dst := make([]byte, MaxCompressedSize(len(data)))
-		into, err := CompressInto(data, dst, &CompressOptions{Level: int(level % 16)})
+		into, err := CompressInto(data, dst, &CompressOptions{Level: lvl})
 		if err != nil {
 			t.Fatalf("CompressInto failed: %v", err)
 		}
 		if !bytes.Equal(into, cmp) {
 			t.Fatal("CompressInto output differs from Compress")
+		}
+
+		appended, err := AppendCompress(nil, data, &CompressOptions{Level: lvl})
+		if err != nil {
+			t.Fatalf("AppendCompress failed: %v", err)
+		}
+		if !bytes.Equal(appended, cmp) {
+			t.Fatal("AppendCompress output differs from Compress")
 		}
 	})
 }

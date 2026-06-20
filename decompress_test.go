@@ -383,10 +383,27 @@ func FuzzDecompressIntoMalformedInput(f *testing.F) {
 	f.Add([]byte{markerM4 | 1, 0, 0})
 	f.Add([]byte{0x12, 0x00, 0x20, 0x00, 0xdf, 0x00, 0x00, 0x11, 0x00, 0x00})
 
-	f.Fuzz(func(t *testing.T, src []byte) {
-		if len(src) > 1<<16 {
-			src = src[:1<<16]
+	// Seed with real compressed streams so the fuzzer can mutate valid inputs.
+	// Mutations of valid streams reach decompressor paths that random bytes miss.
+	seedInputs := []struct {
+		data  []byte
+		level int
+	}{
+		{bytes.Repeat([]byte{0x00}, 4096), 1},
+		{bytes.Repeat([]byte("abcdef"), 1000), 5},
+		{bytes.Repeat([]byte{0xAA, 0x55}, 2048), 9},
+		{[]byte("hello world, this is a test of the LZO decompressor fuzzer"), 1},
+	}
+	for _, s := range seedInputs {
+		if compressed, err := Compress(s.data, &CompressOptions{Level: s.level}); err == nil {
+			f.Add(compressed)
 		}
-		_, _ = DecompressInto(src, make([]byte, 1<<16))
+	}
+
+	f.Fuzz(func(t *testing.T, src []byte) {
+		if len(src) > 1<<17 {
+			src = src[:1<<17]
+		}
+		_, _ = DecompressInto(src, make([]byte, 1<<17))
 	})
 }
