@@ -31,7 +31,13 @@ func Compress(src []byte, opts *CompressOptions) ([]byte, error) {
 	level := max(opts.Level, 0)
 
 	if level <= 1 {
-		return compress1xFast(nil, src), nil
+		required := MaxCompressedSize(len(src))
+		buf := acquireCompressBuffer(required)
+		tmp := compress1xFast(buf.data[:0], src)
+		result := make([]byte, len(tmp))
+		copy(result, tmp)
+		releaseCompressBuffer(buf)
+		return result, nil
 	}
 
 	return compress999Level(src, min(level, 9))
