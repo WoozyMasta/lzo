@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning][].
 ### Removed
 -->
 
+## [0.3.2][] - 2026-06-21
+
+### Changed
+
+* Improved LZO1X-1 compression throughput by approximately 50%
+  on highly repetitive inputs by eliminating bounds checks
+  in the match-length extension inner loop.
+* Improved LZO1X-1 compression throughput by approximately 10%
+  on mixed compressible inputs.
+* Improved decompressor throughput for streams with long matches
+  by scanning zero-extension length bytes 8 at a time instead of one at a time.
+* Reduced `Compress` heap allocations at level 0–1 from up to 16 to 1
+  by routing through a pooled temporary buffer instead of growing from nil.
+
+[0.3.2]: https://github.com/WoozyMasta/lzo/compare/v0.3.1...v0.3.2
+
 ## [0.3.1][] - 2026-06-21
 
 ### Fixed
